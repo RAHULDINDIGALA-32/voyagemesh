@@ -4,8 +4,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.router import api_router
-from services.travel_service import  TravelService
 from config import get_settings
+from services.travel_service import TravelService
 
 
 @asynccontextmanager
@@ -28,16 +28,21 @@ app = FastAPI(
     description=(
         "An intelligent multi-agent travel planning system powered by LangGraph, MCP, Guardrails, and HITL workflows"
     ),
-    version="1.0.0",
+    version="0.1.0",
     lifespan=lifespan,
+    docs_url=None if settings.is_production else "/docs",
+    redoc_url=None if settings.is_production else "/redoc",
+    openapi_url=None if settings.is_production else "/openapi.json",
 )
+
+cors_origins = {
+    "http://localhost:3000",
+    settings.frontend_url.rstrip("/"),
+}
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        settings.frontend_url,
-    ],
+    allow_origins=sorted(origin for origin in cors_origins if origin),
     allow_credentials=False,
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type", "Authorization"],
@@ -53,6 +58,7 @@ app.include_router(
 def root():
     return {
         "name": "VoyageMesh API",
-        "version": "1.0.0",
-        "docs": "/docs",
+        "version": "0.1.0",
+        "docs": None if settings.is_production else "/docs",
+        "health": "/api/v1/health",
     }

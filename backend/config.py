@@ -1,5 +1,5 @@
-
 from functools import lru_cache
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -32,7 +32,8 @@ class Settings(BaseSettings):
     langsmith_tracing: bool = True
     langsmith_project: str = "VoyageMesh"
 
-    frontend_url: SecretStr
+    frontend_url: str = "http://localhost:3000"
+    environment: str = "development"
 
     @property
     def groq_key(self) -> str:
@@ -47,12 +48,34 @@ class Settings(BaseSettings):
         return self.aviationstack_api_key.get_secret_value()
 
     @property
-    def postgres_url(self) -> str:
-        return self.database_url.get_secret_value()
+    def is_production(self) -> bool:
+        return self.environment.lower() == "production"
 
     @property
-    def frontend_url(self) -> str:
-        return self.frontend_url.get_secret_value()
+    def postgres_url(self) -> str:
+        url = self.database_url.get_secret_value().strip()
+
+        if url.startswith("postgres://"):
+            url = "postgresql://" + url[len("postgres://"):]
+
+        for dialect in (
+            "postgresql+psycopg2://",
+            "postgresql+psycopg://",
+            "postgresql+asyncpg://",
+        ):
+            if url.startswith(dialect):
+                url = "postgresql://" + url.split("://", 1)[1]
+                break
+
+        parsed = urlparse(url)
+        host = (parsed.hostname or "").lower()
+        query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+
+        if host not in {"localhost", "127.0.0.1"} and "sslmode" not in query:
+            query["sslmode"] = "require"
+            url = urlunparse(parsed._replace(query=urlencode(query)))
+
+        return url
 
 
 @lru_cache
