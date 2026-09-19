@@ -4,7 +4,7 @@ from psycopg.rows import dict_row
 
 from langgraph.checkpoint.postgres import PostgresSaver
 
-from backend.config import get_settings
+from config import get_settings
 
 
 class Database:

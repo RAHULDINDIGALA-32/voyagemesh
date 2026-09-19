@@ -1,4 +1,4 @@
-from backend.tools.flight import search_flights
+from tools.flight import search_flights
 
 
 def flight_agent(state: dict) -> dict:

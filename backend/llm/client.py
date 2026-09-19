@@ -3,7 +3,7 @@ from functools import lru_cache
 
 from langchain_groq import ChatGroq
 
-from backend.config import get_settings
+from config import get_settings
 
 
 @lru_cache

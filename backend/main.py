@@ -3,9 +3,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.api.router import api_router
-from backend.services.travel_service import  TravelService
-from backend.config import get_settings
+from api.router import api_router
+from services.travel_service import  TravelService
+from config import get_settings
 
 
 @asynccontextmanager
@@ -45,7 +45,7 @@ app.add_middleware(
 
 app.include_router(
     api_router,
-    prefix="/v1"
+    prefix="/api/v1",
 )
 
 

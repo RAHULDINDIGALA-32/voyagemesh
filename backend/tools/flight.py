@@ -5,8 +5,8 @@ import certifi
 import airportsdata
 import pycountry
 
-from backend.config import get_settings
-from backend.tools.aviationstack import AviationStackClient
+from config import get_settings
+from tools.aviationstack import AviationStackClient
 
 
 settings = get_settings()

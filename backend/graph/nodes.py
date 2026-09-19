@@ -1,8 +1,8 @@
 
-from backend.agents.flight import flight_agent as run_flight_agent
-from backend.agents.hotel import hotel_agent as run_hotel_agent
-from backend.agents.itinerary import itinerary_agent as run_itinerary
-from backend.agents.final import final_agent as run_final
+from agents.flight import flight_agent as run_flight_agent
+from agents.hotel import hotel_agent as run_hotel_agent
+from agents.itinerary import itinerary_agent as run_itinerary
+from agents.final import final_agent as run_final
 
 
 def flight_agent(state: dict) -> dict:

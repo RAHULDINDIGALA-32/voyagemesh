@@ -6,9 +6,9 @@ from fastapi import (
 )
 from starlette.concurrency import run_in_threadpool
 
-from backend.api.dependencies import get_travel_service
-from backend.api.schemas import TripRequest, TripResponse
-from backend.services.travel_service import TravelService
+from api.dependencies import get_travel_service
+from api.schemas import TripRequest, TripResponse
+from services.travel_service import TravelService
 
 
 router = APIRouter(

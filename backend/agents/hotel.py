@@ -1,5 +1,5 @@
 
-from backend.tools.tavily import TavilySearchClient
+from tools.tavily import TavilySearchClient
 
 
 def hotel_agent(state: dict) -> dict:

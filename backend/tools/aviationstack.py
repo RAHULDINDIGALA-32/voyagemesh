@@ -1,7 +1,7 @@
 
 import requests
 
-from backend.config import get_settings
+from config import get_settings
 
 
 class AviationStackClient:

@@ -4,8 +4,8 @@ from typing import Any
 
 from langgraph.graph.state import CompiledStateGraph
 
-from backend.graph.workflow import build_graph
-from backend.infrastructure.database import Database
+from graph.workflow import build_graph
+from infrastructure.database import Database
 
 
 class TravelService:

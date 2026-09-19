@@ -4,7 +4,7 @@ from langchain_core.messages import (
     HumanMessage,
 )
 
-from backend.llm.client import get_llm
+from llm.client import get_llm
 
 
 def itinerary_agent(state: dict) -> dict:

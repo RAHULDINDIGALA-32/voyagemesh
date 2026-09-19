@@ -1,8 +1,8 @@
 
 from langgraph.graph import StateGraph, START, END
 
-from backend.graph.state import TravelState
-from backend.graph.nodes import (
+from graph.state import TravelState
+from graph.nodes import (
     flight_agent,
     hotel_agent,
     itinerary_agent,
