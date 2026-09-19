@@ -33,5 +33,6 @@ class Database:
     def close(self):
         if self.connection is not None:
             self.connection.close()
-            self.connection = None
-            self.checkpointer = None
+
+        self.connection = None
+        self.checkpointer = None

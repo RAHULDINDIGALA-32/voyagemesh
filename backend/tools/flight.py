@@ -1,26 +1,21 @@
 import os
 import re
 import certifi
-from dotenv import load_dotenv
 
 import airportsdata
 import pycountry
-import requests
 
-load_dotenv()
+from backend.config import get_settings
+from backend.tools.aviationstack import AviationStackClient
+
+
+settings = get_settings()
 
 os.environ["SSL_CERT_FILE"] = certifi.where()
 os.environ["REQUESTS_CA_BUNDLE"] = certifi.where()
 
-AVIATIONSTACK_API_KEY = os.getenv("AVIATIONSTACK_API_KEY")
-
-if not AVIATIONSTACK_API_KEY:
-    raise ValueError("AviationStack API key is not set in env.")
-
 # Default origin when user inputs only destination (e.g. "Japan trip")
-DEFAULT_ORIGIN_IATA = os.getenv("DEFAULT_ORIGIN_IATA", "HYD")
-
-BASE_URL = os.getenv("AVIATIONSTACK_BASE_URL", "https://api.aviationstack.com/v1/flights")
+DEFAULT_ORIGIN_IATA = settings.default_origin_iata
 
 AIRPORTS = airportsdata.load("IATA")
 
@@ -467,8 +462,7 @@ def search_flights(query: str, limit: int = 10):
     dep_iata, arr_iata = parse_route(query)
 
     params = {
-        "access_key": AVIATIONSTACK_API_KEY,
-        "limit": min(limit, 100),
+        "limit": settings.max_flight_results,
     }
 
     if dep_iata:
@@ -477,21 +471,8 @@ def search_flights(query: str, limit: int = 10):
     if arr_iata:
         params["arr_iata"] = arr_iata
 
-    try:
-        response = requests.get(BASE_URL, params=params, timeout=30)
-        data = response.json()
-    except requests.exceptions.RequestException as e:
-        return f"Flight API request failed: {e}"
-    except ValueError:
-        return "Flight API returned invalid JSON."
-
-    if "error" in data:
-        error = data["error"]
-        return (
-            "Flight API error:\n"
-            f"Code: {error.get('code', 'Unknown')}\n"
-            f"Message: {error.get('message', 'Unknown error')}"
-        )
+    client = AviationStackClient()
+    data = client.search(params)
 
     flight_data = data.get("data", [])
 
