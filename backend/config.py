@@ -32,6 +32,8 @@ class Settings(BaseSettings):
     langsmith_tracing: bool = True
     langsmith_project: str = "VoyageMesh"
 
+    frontend_url: SecretStr
+
     @property
     def groq_key(self) -> str:
         return self.groq_api_key.get_secret_value()
@@ -47,6 +49,10 @@ class Settings(BaseSettings):
     @property
     def postgres_url(self) -> str:
         return self.database_url.get_secret_value()
+
+    @property
+    def frontend_url(self) -> str:
+        return self.frontend_url.get_secret_value()
 
 
 @lru_cache
