@@ -1,0 +1,36 @@
+
+services:
+  - type: web
+    name: voyagemesh-api
+    runtime: docker
+    plan: free
+
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+
+    healthCheckPath: /api/v1/health
+
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+
+      - key: GROQ_API_KEY
+        sync: false
+
+      - key: TAVILY_API_KEY
+        sync: false
+
+      - key: AVIATIONSTACK_API_KEY
+        sync: false
+
+      - key: DATABASE_URL
+        sync: false
+
+      - key: FRONTEND_URL
+        sync: false
+
+      - key: LANGSMITH_TRACING
+        value: "false"
+
+      - key: LANGSMITH_PROJECT
+        value: VoyageMesh
