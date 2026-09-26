@@ -11,7 +11,7 @@ mcp = FastMCP("Weather MCP Server")
 OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY")
 
 if not OPENWEATHER_API_KEY:
-    raise ValueError("No open-weather api key in .env config file")
+    raise ValueError("Missing open-weather api key in .env config file")
 
 
 @mcp.tool()
