@@ -5,6 +5,7 @@ from graph.state import TravelState
 from graph.nodes import (
     flight_agent,
     hotel_agent,
+    weather_agent,
     itinerary_agent,
     final_agent,
 )
@@ -15,12 +16,14 @@ def build_graph(checkpointer):
 
     builder.add_node("flight_agent", flight_agent)
     builder.add_node("hotel_agent", hotel_agent)
+    builder.add_node("weather_agent", weather_agent)
     builder.add_node("itinerary_agent", itinerary_agent)
     builder.add_node("final_agent", final_agent)
 
     builder.add_edge(START, "flight_agent")
     builder.add_edge("flight_agent", "hotel_agent")
-    builder.add_edge("hotel_agent", "itinerary_agent")
+    builder.add_edge("hotel_agent", "weather_agent")
+    builder.add_edge("weather_agent", "itinerary_agent")
     builder.add_edge("itinerary_agent", "final_agent")
     builder.add_edge("final_agent", END)
 

@@ -28,7 +28,7 @@ app = FastAPI(
     description=(
         "An intelligent multi-agent travel planning system powered by LangGraph, MCP, Guardrails, and HITL workflows"
     ),
-    version="0.1.0",
+    version="0.2.0",
     lifespan=lifespan,
     docs_url=None if settings.is_production else "/docs",
     redoc_url=None if settings.is_production else "/redoc",
@@ -58,7 +58,7 @@ app.include_router(
 def root():
     return {
         "name": "VoyageMesh API",
-        "version": "0.1.0",
+        "version": "0.2.0",
         "docs": None if settings.is_production else "/docs",
         "health": "/api/v1/health",
     }

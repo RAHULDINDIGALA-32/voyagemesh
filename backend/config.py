@@ -20,9 +20,11 @@ class Settings(BaseSettings):
 
     llm_model: str = "openai/gpt-oss-120b"
 
-    aviationstack_base_url: str = (
-        "https://api.aviationstack.com/v1/flights"
-    )
+    aviationstack_base_url: str = "https://api.aviationstack.com/v1/flights"
+    tavily_mcp_url: str = "https://mcp.tavily.com/mcp/"
+    aviationstack_mcp_command: str = "uvx"
+    aviationstack_mcp_package: str = "aviationstack-mcp"
+    openweather_api_key: SecretStr | None = None
     default_origin_iata: str = "HYD"
 
     request_timeout_seconds: float = 20.0
@@ -48,6 +50,12 @@ class Settings(BaseSettings):
         return self.aviationstack_api_key.get_secret_value()
 
     @property
+    def openweather_key(self) -> str:
+        if self.openweather_api_key is None:
+            return ""
+        return self.openweather_api_key.get_secret_value()
+
+    @property
     def is_production(self) -> bool:
         return self.environment.lower() == "production"
 
@@ -56,7 +64,7 @@ class Settings(BaseSettings):
         url = self.database_url.get_secret_value().strip()
 
         if url.startswith("postgres://"):
-            url = "postgresql://" + url[len("postgres://"):]
+            url = "postgresql://" + url[len("postgres://") :]
 
         for dialect in (
             "postgresql+psycopg2://",

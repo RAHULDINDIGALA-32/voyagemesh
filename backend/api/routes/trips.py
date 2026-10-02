@@ -26,10 +26,7 @@ async def create_trip(
 ):
 
     try:
-        result = await run_in_threadpool(
-            service.create_trip,
-            payload.query,
-        )
+        result = await service.create_trip(payload.query)
 
         return result
 

@@ -39,7 +39,7 @@ class TravelService:
             "metadata": {
                 "request_id": request_id,
                 "workflow": "voyagemesh",
-                "version": "1",
+                "version": "2",
             },
         }
 
@@ -56,11 +56,12 @@ class TravelService:
             "answer": result.get("final_answer"),
             "flight_results": result.get("flight_results"),
             "hotel_results": result.get("hotel_results"),
+            "weather_results": result.get("weather_results"),
             "itinerary": result.get("itinerary"),
             "errors": result.get("errors", []),
         }
 
-    def create_trip(self, query: str) -> dict:
+    async def create_trip(self, query: str) -> dict:
         graph = self._get_graph()
 
         request_id = uuid.uuid4().hex
@@ -76,12 +77,13 @@ class TravelService:
             "request_id": request_id,
             "flight_results": "",
             "hotel_results": "",
+            "weather_results": "",
             "itinerary": "",
             "final_answer": "",
             "errors": [],
         }
 
-        result = graph.invoke(
+        result = await graph.ainvoke(
             initial_state,
             config=config,
         )
@@ -108,6 +110,7 @@ class TravelService:
             "request_id": request_id,
             "flight_results": "",
             "hotel_results": "",
+            "weather_results": "",
             "itinerary": "",
             "final_answer": "",
             "errors": [],

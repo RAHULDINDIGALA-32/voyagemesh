@@ -2762,6 +2762,7 @@ requires-dist = [
     { name = "pycountry", specifier = ">=26.2.16" },
     { name = "pydantic-settings", specifier = ">=2.15.0" },
     { name = "python-dotenv", specifier = ">=1.2.3" },
+    { name = "requests", specifier = ">=2.32.0" },
     { name = "requests", specifier = ">=2.34.2" },
     { name = "sqlalchemy", specifier = ">=2.0.52" },
     { name = "tavily-python", specifier = ">=0.8.2" },

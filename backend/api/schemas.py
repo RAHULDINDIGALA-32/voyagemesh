@@ -25,6 +25,7 @@ class TripResponse(BaseModel):
     answer: str | None = None
     flight_results: str | None = None
     hotel_results: str | None = None
+    weather_results: str | None = None
     itinerary: str | None = None
     errors: list[str] = Field(default_factory=list)
 

@@ -7,10 +7,10 @@ from langchain_core.messages import (
 from llm.client import get_llm
 
 
-def final_agent(state: dict) -> dict:
+async def final_agent(state: dict) -> dict:
     llm = get_llm()
 
-    response = llm.invoke([
+    response = await llm.ainvoke([
         SystemMessage(
             content=(
                 "You are a professional AI travel planning "
@@ -31,6 +31,9 @@ Flights:
 
 Hotels:
 {state.get('hotel_results', '')}
+
+Weather:
+{state.get('weather_results', '')}
 
 Itinerary:
 {state.get('itinerary', '')}

@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 
-FROM python:3.11-slim-bookworm AS builder
+FROM python:3.13-slim-bookworm AS builder
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
@@ -24,7 +24,7 @@ COPY . .
 RUN uv sync --frozen --no-dev --no-editable
 
 
-FROM python:3.11-slim-bookworm AS runtime
+FROM python:3.13-slim-bookworm AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
