@@ -11,14 +11,14 @@ from services.travel_service import TravelService
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     service = TravelService()
-    service.startup()
+    await service.startup()
 
     app.state.travel_service = service
 
     try:
         yield
     finally:
-        service.shutdown()
+        await service.shutdown()
 
 
 settings = get_settings()

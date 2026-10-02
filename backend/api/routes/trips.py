@@ -4,10 +4,8 @@ from fastapi import (
     APIRouter,
     Depends,
     HTTPException,
-    Request,
 )
 from fastapi.responses import StreamingResponse
-from starlette.concurrency import run_in_threadpool
 
 from api.dependencies import get_travel_service
 from api.schemas import TripRequest, TripResponse
@@ -72,10 +70,7 @@ async def get_trip(
         )
 
     try:
-        return await run_in_threadpool(
-            service.get_trip,
-            thread_id,
-        )
+        return await service.get_trip(thread_id)
 
     except LookupError as exc:
         raise HTTPException(
@@ -87,7 +82,6 @@ async def get_trip(
 @router.get("/{thread_id}/state")
 async def get_trip_state(
     thread_id: str,
-    request: Request,
     service: TravelService = Depends(get_travel_service),
 ):
     if not thread_id.startswith("trip_"):
@@ -97,31 +91,13 @@ async def get_trip_state(
         )
 
     try:
-        snapshot = await run_in_threadpool(
-            service.graph.get_state,
-            {
-                "configurable": {
-                    "thread_id": thread_id,
-                }
-            },
-        )
+        return await service.get_trip_state(thread_id)
 
-        if not snapshot.values:
-            raise HTTPException(
-                status_code=404,
-                detail="Trip not found",
-            )
-
-        return {
-            "thread_id": thread_id,
-            "next": list(snapshot.next),
-            "checkpoint_id": (
-                snapshot.config.get("configurable", {}).get("checkpoint_id")
-            ),
-        }
-
-    except HTTPException:
-        raise
+    except LookupError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="Trip not found",
+        ) from exc
 
     except Exception as exc:
         raise HTTPException(

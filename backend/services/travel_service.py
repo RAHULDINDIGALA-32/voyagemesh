@@ -2,7 +2,6 @@ import uuid
 from typing import Any
 
 from langgraph.graph.state import CompiledStateGraph
-from starlette.concurrency import run_in_threadpool
 
 from graph.workflow import build_graph
 from infrastructure.database import Database
@@ -13,12 +12,12 @@ class TravelService:
         self.database = Database()
         self.graph: CompiledStateGraph | None = None
 
-    def startup(self) -> None:
-        checkpointer = self.database.connect()
+    async def startup(self) -> None:
+        checkpointer = await self.database.connect()
         self.graph = build_graph(checkpointer=checkpointer)
 
-    def shutdown(self) -> None:
-        self.database.close()
+    async def shutdown(self) -> None:
+        await self.database.close()
         self.graph = None
 
     def _get_graph(self) -> CompiledStateGraph:
@@ -138,20 +137,17 @@ class TravelService:
                     },
                 }
 
-        result = await run_in_threadpool(
-            self.get_trip,
-            thread_id,
-        )
+        result = await self.get_trip(thread_id)
 
         yield {
             "event": "completed",
             "data": result,
         }
 
-    def get_trip(self, thread_id: str) -> dict:
+    async def get_trip(self, thread_id: str) -> dict:
         graph = self._get_graph()
 
-        snapshot = graph.get_state(
+        snapshot = await graph.aget_state(
             {
                 "configurable": {
                     "thread_id": thread_id,
@@ -169,3 +165,20 @@ class TravelService:
             values.get("request_id", ""),
             thread_id,
         )
+
+    async def get_trip_state(self, thread_id: str) -> dict:
+        """Return checkpoint metadata without blocking the API event loop."""
+        graph = self._get_graph()
+        snapshot = await graph.aget_state(
+            {"configurable": {"thread_id": thread_id}}
+        )
+        if not snapshot.values:
+            raise LookupError("Trip not found")
+
+        return {
+            "thread_id": thread_id,
+            "next": list(snapshot.next),
+            "checkpoint_id": snapshot.config.get("configurable", {}).get(
+                "checkpoint_id"
+            ),
+        }
