@@ -9,7 +9,8 @@ from fastapi import (
 from fastapi.responses import StreamingResponse
 
 from api.dependencies import get_travel_service
-from api.schemas import TripRequest, TripResponse
+from api.schemas import HumanResponseRequest, TripRequest, TripResponse
+from hitl.contracts import HumanResponseRequest as ValidatedHumanResponseRequest
 from services.travel_service import TravelService
 
 
@@ -88,6 +89,36 @@ async def get_trip(
             status_code=404,
             detail="Trip not found",
         ) from exc
+
+
+@router.post("/{thread_id}/interventions", response_model=TripResponse)
+async def respond_to_intervention(
+    thread_id: str,
+    payload: HumanResponseRequest,
+    service: TravelService = Depends(get_travel_service),
+):
+    if not thread_id.startswith("trip_"):
+        raise HTTPException(status_code=400, detail="Invalid thread ID")
+
+    try:
+        validated_payload = ValidatedHumanResponseRequest.model_validate(
+            payload.model_dump()
+        )
+        return await service.respond_to_intervention(thread_id, validated_payload)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail="Invalid workflow token") from exc
+    except TimeoutError as exc:
+        raise HTTPException(status_code=410, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail="Intervention not found") from exc
+    except RuntimeError as exc:
+        logger.exception("Unable to resume HITL workflow")
+        raise HTTPException(status_code=409, detail="Intervention is currently being processed") from exc
+    except Exception as exc:
+        logger.exception("HITL workflow resumption failed")
+        raise HTTPException(status_code=502, detail="Unable to resume travel planning workflow") from exc
 
 
 @router.get("/{thread_id}/state")

@@ -5,12 +5,14 @@ from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 
 from config import get_settings
+from infrastructure.hitl_repository import HitlInterventionRepository
 
 
 class Database:
     def __init__(self):
         self.pool: AsyncConnectionPool | None = None
         self.checkpointer: AsyncPostgresSaver | None = None
+        self.hitl_repository: HitlInterventionRepository | None = None
 
     async def connect(self) -> AsyncPostgresSaver:
         settings = get_settings()
@@ -34,6 +36,8 @@ class Database:
                 await self.pool.open()
                 self.checkpointer = AsyncPostgresSaver(self.pool)
                 await self.checkpointer.setup()
+                self.hitl_repository = HitlInterventionRepository(self.pool)
+                await self.hitl_repository.setup()
                 return self.checkpointer
             except Exception as exc:
                 last_error = exc
@@ -51,3 +55,4 @@ class Database:
 
         self.pool = None
         self.checkpointer = None
+        self.hitl_repository = None

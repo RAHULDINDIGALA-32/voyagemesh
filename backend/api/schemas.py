@@ -32,7 +32,20 @@ class TripResponse(BaseModel):
     trip_constraints: dict[str, str] = Field(default_factory=dict)
     input_guardrail: dict[str, str | bool] = Field(default_factory=dict)
     output_validation: dict[str, str | bool] = Field(default_factory=dict)
+    human_intervention: dict = Field(default_factory=dict)
+    workflow_token: str | None = Field(
+        default=None,
+        description="Store client-side only; required to resume a paused workflow.",
+    )
     errors: list[str] = Field(default_factory=list)
+
+
+class HumanResponseRequest(BaseModel):
+    intervention_id: str = Field(pattern=r"^hitl_[a-f0-9]{32}$")
+    expected_version: int = Field(ge=1)
+    action: str = Field(min_length=1, max_length=40)
+    data: dict[str, str] = Field(default_factory=dict)
+    workflow_token: str = Field(min_length=32, max_length=256)
 
 class HealthResponse(BaseModel):
     status: str

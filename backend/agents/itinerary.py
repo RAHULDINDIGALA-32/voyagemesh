@@ -39,6 +39,9 @@ Weather research:
 Budget analysis:
 {state.get('budget_analysis', '')}
 
+User-approved itinerary preferences:
+{state.get('user_preferences', {})}
+
 Include:
 - A day-by-day plan
 - Practical travel logistics

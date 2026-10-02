@@ -5,6 +5,7 @@ class TravelState(TypedDict, total=False):
     # Request
     user_query: str
     request_id: str
+    workflow_token_hash: str
     trip_constraints: dict[str, str]
     selected_agents: list[str]
     supervisor_reasoning: str
@@ -14,6 +15,12 @@ class TravelState(TypedDict, total=False):
     execution_status: str
     input_guardrail: dict[str, str | bool]
     output_validation: dict[str, str | bool]
+    human_intervention: dict
+    human_response: dict[str, str | dict[str, str]]
+    hitl_version: int
+    itinerary_version: int
+    user_preferences: dict[str, str]
+    rerun_agents: list[str]
 
     # Tool Ouputs
     flight_results: str

@@ -32,6 +32,9 @@ Hotel research:
 {state.get('hotel_results', '')}
 
 Provide a budget range, major cost categories, savings suggestions, and assumptions.
+End with a separate line in exactly this form when an estimate is possible:
+Estimated total: <number and currency>
+Otherwise write: Estimated total: Unknown
 """),
             ]
         )

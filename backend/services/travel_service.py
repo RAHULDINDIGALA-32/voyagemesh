@@ -1,10 +1,15 @@
+import hashlib
+import hmac
+import secrets
 import uuid
 from typing import Any
 
 from langgraph.graph.state import CompiledStateGraph
 
 from graph.workflow import build_graph
+from hitl.contracts import HumanResponseRequest, validate_human_response
 from infrastructure.database import Database
+from langgraph.types import Command
 
 
 class TravelService:
@@ -47,8 +52,9 @@ class TravelService:
         result: dict[str, Any],
         request_id: str,
         thread_id: str,
+        workflow_token: str | None = None,
     ) -> dict:
-        return {
+        result_payload = {
             "request_id": request_id,
             "thread_id": thread_id,
             "status": result.get("execution_status", "completed"),
@@ -62,55 +68,79 @@ class TravelService:
             "trip_constraints": result.get("trip_constraints", {}),
             "input_guardrail": result.get("input_guardrail", {}),
             "output_validation": result.get("output_validation", {}),
+            "human_intervention": result.get("human_intervention", {}),
             "errors": result.get("errors", []),
         }
+        if workflow_token is not None:
+            result_payload["workflow_token"] = workflow_token
+        return result_payload
+
+    @staticmethod
+    def _new_workflow_token() -> tuple[str, str]:
+        token = secrets.token_urlsafe(32)
+        return token, hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _initial_state(query: str, request_id: str, token_hash: str) -> dict:
+        return {
+            "user_query": query,
+            "request_id": request_id,
+            "workflow_token_hash": token_hash,
+            "trip_constraints": {},
+            "selected_agents": [],
+            "supervisor_reasoning": "",
+            "completed_agents": [],
+            "request_blocked": False,
+            "blocked_reason": "",
+            "execution_status": "running",
+            "input_guardrail": {},
+            "output_validation": {},
+            "human_intervention": {},
+            "human_response": {},
+            "hitl_version": 0,
+            "itinerary_version": 0,
+            "user_preferences": {},
+            "rerun_agents": [],
+            "flight_results": "",
+            "hotel_results": "",
+            "weather_results": "",
+            "budget_analysis": "",
+            "itinerary": "",
+            "final_answer": "",
+            "errors": [],
+        }
+
+    async def _sync_pending_intervention(self, thread_id: str, values: dict) -> None:
+        intervention = values.get("human_intervention", {})
+        if intervention.get("status") != "pending":
+            return
+        repository = self.database.hitl_repository
+        if repository is None:
+            raise RuntimeError("HITL repository is not initialized")
+        await repository.ensure_pending(thread_id, intervention)
 
     async def create_trip(self, query: str) -> dict:
         graph = self._get_graph()
 
         request_id = uuid.uuid4().hex
         thread_id = f"trip_{uuid.uuid4().hex}"
+        workflow_token, token_hash = self._new_workflow_token()
 
         config = self._config(
             thread_id=thread_id,
             request_id=request_id,
         )
 
-        initial_state = {
-            "user_query": query,
-            "request_id": request_id,
-            "trip_constraints": {},
-            "selected_agents": [],
-            "supervisor_reasoning": "",
-            "completed_agents": [],
-            "request_blocked": False,
-            "blocked_reason": "",
-            "execution_status": "completed",
-            "input_guardrail": {},
-            "output_validation": {},
-            "flight_results": "",
-            "hotel_results": "",
-            "weather_results": "",
-            "budget_analysis": "",
-            "itinerary": "",
-            "final_answer": "",
-            "errors": [],
-        }
-
-        result = await graph.ainvoke(
-            initial_state,
-            config=config,
-        )
-
-        return self._format_result(
-            result,
-            request_id,
-            thread_id,
-        )
+        await graph.ainvoke(self._initial_state(query, request_id, token_hash), config=config)
+        result = await self.get_trip(thread_id)
+        await self._sync_pending_intervention(thread_id, await self._get_state_values(thread_id))
+        result["workflow_token"] = workflow_token
+        return result
 
     async def stream_trip(self, query: str):
         request_id = uuid.uuid4().hex
         thread_id = f"trip_{uuid.uuid4().hex}"
+        workflow_token, token_hash = self._new_workflow_token()
 
         graph = self._get_graph()
 
@@ -119,32 +149,14 @@ class TravelService:
             request_id=request_id,
         )
 
-        initial_state = {
-            "user_query": query,
-            "request_id": request_id,
-            "trip_constraints": {},
-            "selected_agents": [],
-            "supervisor_reasoning": "",
-            "completed_agents": [],
-            "request_blocked": False,
-            "blocked_reason": "",
-            "execution_status": "completed",
-            "input_guardrail": {},
-            "output_validation": {},
-            "flight_results": "",
-            "hotel_results": "",
-            "weather_results": "",
-            "budget_analysis": "",
-            "itinerary": "",
-            "final_answer": "",
-            "errors": [],
-        }
+        initial_state = self._initial_state(query, request_id, token_hash)
 
         yield {
             "event": "started",
             "data": {
                 "request_id": request_id,
                 "thread_id": thread_id,
+                "workflow_token": workflow_token,
             },
         }
 
@@ -163,15 +175,15 @@ class TravelService:
                 }
 
         result = await self.get_trip(thread_id)
+        await self._sync_pending_intervention(thread_id, await self._get_state_values(thread_id))
 
         yield {
-            "event": "completed",
+            "event": "awaiting_human" if result["status"] == "awaiting_human" else "completed",
             "data": result,
         }
 
-    async def get_trip(self, thread_id: str) -> dict:
+    async def _get_state_values(self, thread_id: str) -> dict:
         graph = self._get_graph()
-
         snapshot = await graph.aget_state(
             {
                 "configurable": {
@@ -182,14 +194,54 @@ class TravelService:
 
         if not snapshot.values:
             raise LookupError("Trip not found")
+        return snapshot.values
 
-        values = snapshot.values
+    async def get_trip(self, thread_id: str) -> dict:
+        values = await self._get_state_values(thread_id)
 
         return self._format_result(
             values,
             values.get("request_id", ""),
             thread_id,
         )
+
+    async def respond_to_intervention(
+        self, thread_id: str, response: HumanResponseRequest
+    ) -> dict:
+        values = await self._get_state_values(thread_id)
+        expected_hash = values.get("workflow_token_hash", "")
+        actual_hash = hashlib.sha256(response.workflow_token.encode("utf-8")).hexdigest()
+        if not expected_hash or not hmac.compare_digest(expected_hash, actual_hash):
+            raise PermissionError("Invalid workflow token")
+
+        intervention = values.get("human_intervention", {})
+        sanitized_response = validate_human_response(intervention, response)
+        repository = self.database.hitl_repository
+        if repository is None:
+            raise RuntimeError("HITL repository is not initialized")
+        await repository.ensure_pending(thread_id, intervention)
+        claim = await repository.claim(
+            thread_id=thread_id,
+            intervention_id=response.intervention_id,
+            state_version=response.expected_version,
+            response=sanitized_response,
+        )
+        if claim.status != "claimed":
+            return await self.get_trip(thread_id)
+
+        try:
+            await self._get_graph().ainvoke(
+                Command(resume=sanitized_response),
+                config={"configurable": {"thread_id": thread_id}},
+            )
+        except Exception:
+            await repository.release(response.intervention_id)
+            raise
+
+        await repository.finalize(response.intervention_id)
+        values = await self._get_state_values(thread_id)
+        await self._sync_pending_intervention(thread_id, values)
+        return self._format_result(values, values.get("request_id", ""), thread_id)
 
     async def get_trip_state(self, thread_id: str) -> dict:
         """Return checkpoint metadata without blocking the API event loop."""
