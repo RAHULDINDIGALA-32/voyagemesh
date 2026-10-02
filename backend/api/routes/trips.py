@@ -1,4 +1,5 @@
 import json
+import logging
 
 from fastapi import (
     APIRouter,
@@ -10,6 +11,9 @@ from fastapi.responses import StreamingResponse
 from api.dependencies import get_travel_service
 from api.schemas import TripRequest, TripResponse
 from services.travel_service import TravelService
+
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/trips",
@@ -29,7 +33,7 @@ async def create_trip(
         return result
 
     except Exception as exc:
-        # Log using Logger
+        logger.exception("Trip workflow failed")
         raise HTTPException(
             status_code=502,
             detail="Travel planning workflow failed",
@@ -42,8 +46,15 @@ async def stream_trip(
     service: TravelService = Depends(get_travel_service),
 ):
     async def event_generator():
-        async for item in service.stream_trip(payload.query):
-            yield (f"event: {item['event']}\n" f"data: {json.dumps(item['data'])}\n\n")
+        try:
+            async for item in service.stream_trip(payload.query):
+                yield (
+                    f"event: {item['event']}\n"
+                    f"data: {json.dumps(item['data'])}\n\n"
+                )
+        except Exception:
+            logger.exception("Trip streaming workflow failed")
+            yield "event: error\ndata: {\"detail\": \"Travel planning workflow failed\"}\n\n"
 
     return StreamingResponse(
         event_generator(),

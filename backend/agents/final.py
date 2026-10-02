@@ -8,19 +8,18 @@ from llm.client import get_llm
 
 
 async def final_agent(state: dict) -> dict:
-    llm = get_llm()
-
-    response = await llm.ainvoke([
-        SystemMessage(
-            content=(
-                "You are a professional AI travel planning "
-                "assistant. Produce a clear, useful response. "
-                "Do not fabricate prices, live availability, "
-                "bookings, or missing travel details."
-            )
-        ),
-        HumanMessage(
-            content=f"""
+    try:
+        response = await get_llm().ainvoke([
+            SystemMessage(
+                content=(
+                    "You are a professional AI travel planning "
+                    "assistant. Produce a clear, useful response. "
+                    "Do not fabricate prices, live availability, "
+                    "bookings, or missing travel details."
+                )
+            ),
+            HumanMessage(
+                content=f"""
 Prepare the final response.
 
 User request:
@@ -35,6 +34,9 @@ Hotels:
 Weather:
 {state.get('weather_results', '')}
 
+Budget analysis:
+{state.get('budget_analysis', '')}
+
 Itinerary:
 {state.get('itinerary', '')}
 
@@ -48,9 +50,15 @@ Use these sections:
 
 Clearly distinguish sourced information from estimates.
 """
-        ),
-    ])
+            ),
+        ])
 
-    return {
-        "final_answer": response.content,
-    }
+        return {"final_answer": str(response.content)}
+    except Exception as exc:
+        return {
+            "final_answer": (
+                "Travel research completed partially, but final response synthesis is "
+                "currently unavailable. Please retry shortly."
+            ),
+            "errors": [f"final_agent: {type(exc).__name__}"],
+        }

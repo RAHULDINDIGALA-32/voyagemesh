@@ -26,7 +26,10 @@ class TripResponse(BaseModel):
     flight_results: str | None = None
     hotel_results: str | None = None
     weather_results: str | None = None
+    budget_analysis: str | None = None
     itinerary: str | None = None
+    selected_agents: list[str] = Field(default_factory=list)
+    trip_constraints: dict[str, str] = Field(default_factory=dict)
     errors: list[str] = Field(default_factory=list)
 
 class HealthResponse(BaseModel):

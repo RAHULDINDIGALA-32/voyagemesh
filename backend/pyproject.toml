@@ -1,6 +1,6 @@
 [project]
 name = "voyagemesh-backend"
-version = "0.1.0"
+version = "0.3.0"
 description = "An intelligent multi-agent travel planning system powered by LangGraph, MCP, Guardrails, and HITL workflows"
 requires-python = ">=3.11"
 dependencies = [
@@ -21,7 +21,6 @@ dependencies = [
     "pycountry>=26.2.16",
     "pydantic-settings>=2.15.0",
     "python-dotenv>=1.2.3",
-    "requests>=2.32.0",
     "requests>=2.34.2",
     "sqlalchemy>=2.0.52",
     "tavily-python>=0.8.2",

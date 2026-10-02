@@ -38,7 +38,7 @@ class TravelService:
             "metadata": {
                 "request_id": request_id,
                 "workflow": "voyagemesh",
-                "version": "2",
+                "version": "3",
             },
         }
 
@@ -56,7 +56,10 @@ class TravelService:
             "flight_results": result.get("flight_results"),
             "hotel_results": result.get("hotel_results"),
             "weather_results": result.get("weather_results"),
+            "budget_analysis": result.get("budget_analysis"),
             "itinerary": result.get("itinerary"),
+            "selected_agents": result.get("selected_agents", []),
+            "trip_constraints": result.get("trip_constraints", {}),
             "errors": result.get("errors", []),
         }
 
@@ -74,9 +77,14 @@ class TravelService:
         initial_state = {
             "user_query": query,
             "request_id": request_id,
+            "trip_constraints": {},
+            "selected_agents": [],
+            "supervisor_reasoning": "",
+            "completed_agents": [],
             "flight_results": "",
             "hotel_results": "",
             "weather_results": "",
+            "budget_analysis": "",
             "itinerary": "",
             "final_answer": "",
             "errors": [],
@@ -107,9 +115,14 @@ class TravelService:
         initial_state = {
             "user_query": query,
             "request_id": request_id,
+            "trip_constraints": {},
+            "selected_agents": [],
+            "supervisor_reasoning": "",
+            "completed_agents": [],
             "flight_results": "",
             "hotel_results": "",
             "weather_results": "",
+            "budget_analysis": "",
             "itinerary": "",
             "final_answer": "",
             "errors": [],
