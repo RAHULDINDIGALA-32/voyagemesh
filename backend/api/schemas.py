@@ -30,6 +30,8 @@ class TripResponse(BaseModel):
     itinerary: str | None = None
     selected_agents: list[str] = Field(default_factory=list)
     trip_constraints: dict[str, str] = Field(default_factory=dict)
+    input_guardrail: dict[str, str | bool] = Field(default_factory=dict)
+    output_validation: dict[str, str | bool] = Field(default_factory=dict)
     errors: list[str] = Field(default_factory=list)
 
 class HealthResponse(BaseModel):

@@ -9,6 +9,11 @@ class TravelState(TypedDict, total=False):
     selected_agents: list[str]
     supervisor_reasoning: str
     completed_agents: Annotated[list[str], add]
+    request_blocked: bool
+    blocked_reason: str
+    execution_status: str
+    input_guardrail: dict[str, str | bool]
+    output_validation: dict[str, str | bool]
 
     # Tool Ouputs
     flight_results: str
