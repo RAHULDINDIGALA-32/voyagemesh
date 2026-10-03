@@ -10,7 +10,10 @@ import { createClient } from "@/lib/supabase/client";
 function AuthForm({ mode }: { mode: "login" | "signup" }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const next = searchParams.get("next") ?? "/app";
+  const requestedNext = searchParams.get("next") ?? "/app";
+  const next = requestedNext.startsWith("/") && !requestedNext.startsWith("//")
+    ? requestedNext
+    : "/app";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -48,14 +51,23 @@ function AuthForm({ mode }: { mode: "login" | "signup" }) {
   }
 
   async function onGoogle() {
-    const supabase = createClient();
-    const origin = window.location.origin;
-    await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: `${origin}/auth/callback?next=${encodeURIComponent(next)}`,
-      },
-    });
+    setPending(true);
+    setError(null);
+    try {
+      const supabase = createClient();
+      const origin = window.location.origin;
+      const { error: signError } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${origin}/auth/callback?next=${encodeURIComponent(next)}`,
+        },
+      });
+      if (signError) setError(signError.message);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to authenticate");
+    } finally {
+      setPending(false);
+    }
   }
 
   return (
@@ -93,7 +105,7 @@ function AuthForm({ mode }: { mode: "login" | "signup" }) {
         </label>
         {error ? <p className="text-sm text-danger">{error}</p> : null}
         <Button type="submit" variant="brass" disabled={pending}>
-          {pending ? "Working…" : mode === "login" ? "Enter" : "Create desk"}
+          {pending ? "Working…" : mode === "login" ? "Login" : "Create desk"}
         </Button>
         <Button type="button" onClick={onGoogle}>
           Continue with Google
@@ -109,7 +121,7 @@ function AuthForm({ mode }: { mode: "login" | "signup" }) {
           </>
         ) : (
           <>
-            Already commissioned?{" "}
+            Already have an account?{" "}
             <Link href="/login" className="text-steel underline-offset-2 hover:underline">
               Sign in
             </Link>

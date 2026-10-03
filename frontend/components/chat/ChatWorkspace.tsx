@@ -40,10 +40,13 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
   });
 
   useEffect(() => {
-    setLocalMessages([]);
-    setLivePayload(null);
-    setProgress([]);
-    setError(null);
+    const reset = window.setTimeout(() => {
+      setLocalMessages([]);
+      setLivePayload(null);
+      setProgress([]);
+      setError(null);
+    }, 0);
+    return () => window.clearTimeout(reset);
   }, [conversationId]);
 
   const messages = useMemo(() => {

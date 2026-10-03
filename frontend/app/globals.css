@@ -40,9 +40,9 @@
   --color-steel: var(--steel);
   --color-olive: var(--olive);
   --color-danger: var(--danger);
-  --font-sans: var(--font-plex-sans);
-  --font-display: var(--font-fraunces);
-  --font-mono: var(--font-plex-mono);
+  --font-sans: "IBM Plex Sans", "Segoe UI", sans-serif;
+  --font-display: Fraunces, Georgia, serif;
+  --font-mono: "IBM Plex Mono", Consolas, monospace;
 }
 
 html {
@@ -53,11 +53,11 @@ html {
 body {
   background: var(--paper);
   color: var(--ink);
-  font-family: var(--font-plex-sans), "IBM Plex Sans", sans-serif;
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
 }
 
 .font-display {
-  font-family: var(--font-fraunces), Fraunces, serif;
+  font-family: Fraunces, Georgia, serif;
 }
 
 ::selection {
