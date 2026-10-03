@@ -38,6 +38,17 @@ class TripResponse(BaseModel):
         description="Store client-side only; required to resume a paused workflow.",
     )
     errors: list[str] = Field(default_factory=list)
+    conversation_id: str | None = None
+    trip_id: str | None = None
+    title: str | None = None
+
+
+class FollowUpRequest(BaseModel):
+    query: str = Field(min_length=5, max_length=2000)
+
+
+class RenameRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
 
 
 class HumanResponseRequest(BaseModel):
