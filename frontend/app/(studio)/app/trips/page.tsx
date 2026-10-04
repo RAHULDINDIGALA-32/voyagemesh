@@ -1,6 +1,5 @@
 "use client";
 
-import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { FoldList } from "@/components/trips/FoldList";
 import { listTrips } from "@/lib/api/trips";
@@ -14,17 +13,11 @@ export default function TripsPage() {
     enabled: Boolean(token),
   });
 
-  const filtered = useMemo(() => {
-    return (trips.data ?? []).filter((trip) => {
-      return true;
-    });
-  }, [trips.data]);
-
   return (
     <main className="h-full overflow-y-auto px-8 py-10">
       <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-brass">Strip map</p>
       <h1 className="mt-2 font-display text-4xl">Trips</h1>
-      <FoldList trips={filtered} />
+      <FoldList trips={trips.data ?? []} />
     </main>
   );
 }

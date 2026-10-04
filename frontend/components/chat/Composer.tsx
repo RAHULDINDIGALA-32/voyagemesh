@@ -1,13 +1,152 @@
 "use client";
-import { ArrowUp } from "lucide-react";
-import { useState, type FormEvent } from "react";
 
-const STARTERS = ["Five days in Kyoto from Hyderabad, two travelers, mid-April, budget INR 180000.","Long weekend in Lisbon from London, one traveler, walking-first, no car.","Nine days in Japan from Mumbai covering Tokyo and Kanazawa, family of three.","A quiet week in Kerala with beaches, food, and no rushed transfers.","Plan a winter city break from Delhi with museums and excellent rail connections.","Build a family-friendly itinerary for Singapore with a comfortable budget.","Find a food-first route through northern Italy for two travelers.","Design a slow, scenic trip through New Zealand with minimal driving.","Plan a monsoon escape from Bengaluru with nature and boutique stays.","Create a practical business trip plan with one free evening each day."];
+import { ArrowUp, Compass, Square } from "lucide-react";
+import { useMemo, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useApproxPlace } from "@/lib/hooks/useApproxPlace";
+import { formatPlace, type ApproxPlace } from "@/lib/studio/place";
 
-export function Composer({ disabled, onSend, centered = false }: { disabled?: boolean; onSend: (query: string) => void; centered?: boolean }) {
-  const [value, setValue] = useState("");
-  const submit = (event: FormEvent) => { event.preventDefault(); const query = value.trim(); if (query.length < 5 || disabled) return; onSend(query); setValue(""); };
-  return <div className={centered ? "w-full" : "border-t border-rule bg-paper px-4 py-4"}><form onSubmit={submit} className="relative mx-auto max-w-2xl rounded-xl border border-rule bg-paper-raised p-2 shadow-[0_2px_0_var(--rule)] focus-within:border-steel"><textarea value={value} onChange={(event) => setValue(event.target.value)} disabled={disabled} rows={centered ? 3 : 2} placeholder="Where are you headed? Include dates, travelers, and a budget." className="w-full resize-none bg-transparent px-3 py-2 pr-12 text-sm leading-6 outline-none placeholder:text-ink-soft/70" /><button type="submit" aria-label="Send briefing" disabled={disabled || value.trim().length < 5} className="absolute bottom-3 right-3 flex h-8 w-8 items-center justify-center rounded-full bg-brass text-paper transition-all hover:scale-105 disabled:bg-rule disabled:text-ink-soft disabled:hover:scale-100"><ArrowUp size={17} strokeWidth={1.7} /></button></form><StarterQueries onPick={onSend} centered={centered} /></div>;
+const SUGGESTION_TEMPLATES = [
+  (place: string) => `A slow weekend from ${place} with trains, not terminals.`,
+  (place: string) => `Five coastal days departing ${place}, no rushed transfers.`,
+  (place: string) => `A food-first city break from ${place} for two travelers.`,
+  (place: string) => `Hill stations within reach of ${place}, boutique stays.`,
+  (place: string) => `A monsoon-aware week from ${place} with nature and quiet rooms.`,
+  (place: string) => `Family itinerary from ${place} with easy hops and a comfortable budget.`,
+  (place: string) => `A winter museum circuit from ${place} by rail.`,
+  (place: string) => `Quiet beaches a short hop from ${place}.`,
+  (place: string) => `Street food and night markets, starting in ${place}.`,
+  (place: string) => `A practical business trip from ${place} with one free evening each day.`,
+];
+
+function pickSuggestions(place: ApproxPlace) {
+  const label = formatPlace(place);
+  const seed = `${new Date().toISOString().slice(0, 10)}-${label}`;
+  let hash = 0;
+  for (const char of seed) hash = (hash * 33 + char.charCodeAt(0)) >>> 0;
+  const start = hash % SUGGESTION_TEMPLATES.length;
+  return [0, 1, 2].map((offset) => {
+    const template = SUGGESTION_TEMPLATES[(start + offset) % SUGGESTION_TEMPLATES.length];
+    return template(label);
+  });
 }
 
-export function StarterQueries({ onPick, centered = false }: { onPick: (query: string) => void; centered?: boolean }) { const [items] = useState(() => STARTERS.slice(Math.floor(Math.random() * 7), Math.floor(Math.random() * 7) + 3)); return <div className={`mx-auto mt-3 flex max-w-2xl flex-wrap gap-x-4 gap-y-2 ${centered ? "justify-center" : ""}`}>{items.map((query) => <button key={query} type="button" onClick={() => onPick(query)} className="text-left text-xs text-ink-soft transition-colors hover:text-steel">{query}</button>)}</div>; }
+export function Composer({
+  disabled,
+  onSend,
+  variant = "dock",
+  showSuggestions = false,
+}: {
+  disabled?: boolean;
+  onSend: (query: string) => void;
+  variant?: "hero" | "dock";
+  showSuggestions?: boolean;
+}) {
+  const [value, setValue] = useState("");
+  const canSubmit = value.trim().length > 0 && !disabled;
+  const hero = variant === "hero";
+
+  const submit = (event?: FormEvent) => {
+    event?.preventDefault();
+    const query = value.trim();
+    if (!query || disabled) return;
+    onSend(query);
+    setValue("");
+  };
+
+  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      submit();
+    }
+  };
+
+  const handleInput = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
+  const textarea = event.target;
+
+  textarea.style.height = "auto";
+  textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
+
+  setValue(textarea.value);
+};
+
+  return (
+    <div className="w-full">
+      <form
+        onSubmit={submit}
+        className={`relative mx-auto w-full max-w-2xl border border-rule bg-paper-raised transition-[border-color] focus-within:border-brass ${hero ? "rounded-2xl px-3 pb-3 pt-3" : "rounded-2xl px-4 py-2"
+          }`}
+      >
+        <textarea
+  value={value}
+  onChange={handleInput}
+  onKeyDown={onKeyDown}
+  disabled={disabled}
+  rows={1}
+  placeholder={
+    hero
+      ? "How can I help you chart a voyage?"
+      : "Write your briefing..."
+  }
+  className={`w-full resize-y overflow-y-auto bg-transparent text-sm leading-6 outline-none placeholder:text-ink-soft/70 ${
+    hero
+      ? "min-h-[72px] max-h-[160px] px-1 py-1 pr-12"
+      : "min-h-[32px] max-h-[160px] py-1.5 pr-12"
+  }`}
+/>
+
+        <div className="absolute bottom-2.5 right-2.5">
+          {disabled ? (
+            <span
+              aria-label="Planning in progress"
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-brass text-paper"
+            >
+              <Square size={11} fill="currentColor" strokeWidth={0} />
+            </span>
+          ) : (
+            <button
+              type="submit"
+              aria-label="Send briefing"
+              disabled={!canSubmit}
+              className={`flex h-8 w-8 items-center justify-center rounded-full transition-all ${canSubmit
+                  ? "bg-brass text-paper hover:scale-105"
+                  : "bg-rule text-ink-soft/70"
+                }`}
+            >
+              <ArrowUp size={16} strokeWidth={2.2} />
+            </button>
+          )}
+        </div>
+      </form>
+
+      {showSuggestions && !disabled ? <StarterQueries onPick={onSend} /> : null}
+    </div>
+  );
+}
+
+function StarterQueries({ onPick }: { onPick: (query: string) => void }) {
+  const place = useApproxPlace();
+  const items = useMemo(() => pickSuggestions(place), [place]);
+
+  return (
+    <div className="mx-auto mt-5 flex max-w-2xl flex-col items-start gap-0.5 px-1">
+      {items.map((query, index) => (
+        <button
+          key={query}
+          type="button"
+          onClick={() => onPick(query)}
+          style={{ animationDelay: `${index * 70}ms` }}
+          className="suggest-row group flex w-full items-center gap-3 rounded-md px-1 py-2 text-left text-sm text-ink-soft transition-colors hover:text-ink"
+        >
+          <Compass
+            size={15}
+            strokeWidth={1.4}
+            className="shrink-0 text-brass/80 transition-transform duration-300 group-hover:rotate-45"
+          />
+          <span className="transition-transform duration-300 group-hover:translate-x-0.5">
+            {query}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}

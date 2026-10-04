@@ -3,12 +3,14 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { CompassMark } from "@/components/brand/CompassMark";
 import { Composer } from "@/components/chat/Composer";
 import { HitlCard } from "@/components/chat/HitlCard";
 import { asTripPayload, streamFollowUp, streamTrip } from "@/lib/api/sse";
 import { getConversation, getTrip } from "@/lib/api/trips";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
+import { pickGreeting } from "@/lib/studio/greetings";
 import type { ChatMessage, TripPayload } from "@/types/trip";
 
 function agentLabel(node: string) {
@@ -24,6 +26,7 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
   const [busy, setBusy] = useState(false);
   const [livePayload, setLivePayload] = useState<TripPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const endRef = useRef<HTMLDivElement>(null);
 
   const conversation = useQuery({
     queryKey: ["conversation", conversationId, token],
@@ -58,8 +61,12 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
 
   const payload = livePayload ?? trip.data ?? null;
   const interventionPending = payload?.human_intervention?.status === "pending";
-  const hour = new Date().getHours();
-  const greeting = hour < 5 ? "Good moonlight" : hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : hour < 21 ? "Good evening" : "Good night";
+  const greeting = useMemo(() => pickGreeting(fullName), [fullName]);
+  const isFresh = !conversationId && messages.length === 0 && !busy;
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: "end" });
+  }, [messages, progress, busy]);
 
   async function dispatch(query: string) {
     if (!token) return;
@@ -141,9 +148,18 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
 
   if (!ready) return null;
 
+  const composer = (
+    <Composer
+      variant={isFresh ? "hero" : "dock"}
+      showSuggestions={isFresh}
+      disabled={busy || interventionPending}
+      onSend={dispatch}
+    />
+  );
+
   return (
     <div className="flex h-full flex-col">
-      {payload ? (
+      {payload && !isFresh ? (
         <div className="flex items-center justify-between border-b border-rule px-6 py-3">
           <div>
             <p className="font-display text-lg">
@@ -162,56 +178,67 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
         </div>
       ) : null}
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8">
-        <div className="mx-auto max-w-2xl">
-          {!conversationId && messages.length === 0 ? <h1 className="mb-8 font-display text-4xl leading-tight">{greeting}{fullName ? `, ${fullName.split(" ")[0]}` : ""}. Where shall we plot?</h1> : null}
-
-          {messages.map((message) =>
-            message.role === "user" ? (
-              <div key={message.id} className="mb-4 flex justify-end">
-                <p className="max-w-[80%] bg-paper-raised px-3 py-2 text-sm leading-relaxed">
-                  {message.content}
-                </p>
-              </div>
-            ) : (
-              <div key={message.id} className="mb-6 max-w-[86%] whitespace-pre-wrap text-sm leading-7">
-                {message.content}
-              </div>
-            ),
-          )}
-
-          {progress.length > 0 && busy ? (
-            <p className="font-mono text-[11px] tracking-wide text-steel">
-              {progress.map(agentLabel).join(" → ")}
-            </p>
-          ) : null}
-
-          {payload?.status === "blocked" ? (
-            <div className="mt-4 border border-steel px-3 py-3 text-sm">
-              {payload.answer}
+      {isFresh ? (
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6">
+          <div className="w-full max-w-2xl">
+            <div className="mb-8 flex items-center justify-center gap-3">
+              <CompassMark />
+              <h1 className="text-center font-display text-[2.15rem] leading-tight tracking-tight">
+                {greeting}
+              </h1>
             </div>
-          ) : null}
-
-          {token && payload && interventionPending ? (
-            <HitlCard
-              token={token}
-              payload={payload}
-              onResolved={async (next) => {
-                setLivePayload(next);
-                await queryClient.invalidateQueries({ queryKey: ["conversations"] });
-                await queryClient.invalidateQueries({ queryKey: ["conversation"] });
-                await queryClient.invalidateQueries({ queryKey: ["trip"] });
-                await queryClient.invalidateQueries({ queryKey: ["trips"] });
-              }}
-            />
-          ) : null}
-
-          {error ? <p className="mt-4 text-sm text-danger">{error}</p> : null}
+            {composer}
+          </div>
         </div>
-      </div>
-      <div className={`mx-auto w-full ${!conversationId && messages.length === 0 ? "max-w-2xl pb-16" : "max-w-2xl"}`}>
-        <Composer centered={!conversationId && messages.length === 0} disabled={busy || interventionPending} onSend={dispatch} />
-      </div>
+      ) : (
+        <>
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8">
+            <div className="mx-auto max-w-2xl">
+              {messages.map((message) =>
+                message.role === "user" ? (
+                  <div key={message.id} className="mb-4 flex justify-end">
+                    <p className="max-w-[80%] rounded-2xl bg-paper-raised px-3 py-2 text-sm leading-relaxed">
+                      {message.content}
+                    </p>
+                  </div>
+                ) : (
+                  <div key={message.id} className="mb-6 max-w-[86%] whitespace-pre-wrap text-sm leading-7">
+                    {message.content}
+                  </div>
+                ),
+              )}
+
+              {progress.length > 0 && busy ? (
+                <p className="font-mono text-[11px] tracking-wide text-steel">
+                  {progress.map(agentLabel).join(" → ")}
+                </p>
+              ) : null}
+
+              {payload?.status === "blocked" ? (
+                <div className="mt-4 border border-steel px-3 py-3 text-sm">{payload.answer}</div>
+              ) : null}
+
+              {token && payload && interventionPending ? (
+                <HitlCard
+                  token={token}
+                  payload={payload}
+                  onResolved={async (next) => {
+                    setLivePayload(next);
+                    await queryClient.invalidateQueries({ queryKey: ["conversations"] });
+                    await queryClient.invalidateQueries({ queryKey: ["conversation"] });
+                    await queryClient.invalidateQueries({ queryKey: ["trip"] });
+                    await queryClient.invalidateQueries({ queryKey: ["trips"] });
+                  }}
+                />
+              ) : null}
+
+              {error ? <p className="mt-4 text-sm text-danger">{error}</p> : null}
+              <div ref={endRef} />
+            </div>
+          </div>
+          <div className="mx-auto w-full max-w-2xl px-4 pb-5 pt-2">{composer}</div>
+        </>
+      )}
     </div>
   );
 }

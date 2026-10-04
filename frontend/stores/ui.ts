@@ -3,22 +3,29 @@ import { persist } from "zustand/middleware";
 
 type UiState = {
   sidebarCollapsed: boolean;
-  chatSearch: string;
+  searchOpen: boolean;
   toggleSidebar: () => void;
   setSidebarCollapsed: (value: boolean) => void;
-  setChatSearch: (value: string) => void;
+  openSearch: () => void;
+  closeSearch: () => void;
+  toggleSearch: () => void;
 };
 
 export const useUiStore = create<UiState>()(
   persist(
     (set) => ({
       sidebarCollapsed: false,
-      chatSearch: "",
+      searchOpen: false,
       toggleSidebar: () =>
         set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
       setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
-      setChatSearch: (chatSearch) => set({ chatSearch }),
+      openSearch: () => set({ searchOpen: true }),
+      closeSearch: () => set({ searchOpen: false }),
+      toggleSearch: () => set((state) => ({ searchOpen: !state.searchOpen })),
     }),
-    { name: "voyagemesh-ui" },
+    {
+      name: "voyagemesh-ui",
+      partialize: (state) => ({ sidebarCollapsed: state.sidebarCollapsed }),
+    },
   ),
 );
