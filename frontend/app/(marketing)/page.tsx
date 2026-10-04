@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { Wordmark } from "@/components/brand/Wordmark";
 import { MeshCanvas } from "@/components/marketing/MeshCanvas";
+import { createServerSupabase } from "@/lib/supabase/server";
+import { redirect } from "next/navigation";
 
 const plates = [
   {
@@ -25,7 +27,14 @@ const plates = [
   },
 ];
 
-export default function LandingPage() {
+export default async function LandingPage() {
+  try {
+    const supabase = await createServerSupabase();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) redirect("/app");
+  } catch {
+    // Keep marketing available for local setups without Supabase credentials.
+  }
   return (
     <div className="min-h-full">
       <header className="flex items-center justify-between border-b border-rule px-6 py-4 md:px-10">
@@ -42,7 +51,7 @@ export default function LandingPage() {
             href="/signup"
             className="rounded-[3px] border border-brass px-3 py-1.5 text-brass"
           >
-            Open the Chart Room
+            Launch App
           </Link>
         </nav>
       </header>

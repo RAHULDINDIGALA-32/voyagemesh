@@ -15,6 +15,7 @@ function AuthForm({ mode }: { mode: "login" | "signup" }) {
     ? requestedNext
     : "/app";
   const [email, setEmail] = useState("");
+  const [fullName, setFullName] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -25,21 +26,38 @@ function AuthForm({ mode }: { mode: "login" | "signup" }) {
     setError(null);
     try {
       const supabase = createClient();
+      let requiresVerification = false;
       if (mode === "signup") {
-        const { error: signError } = await supabase.auth.signUp({ email, password });
+        const { data, error: signError } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: { full_name: fullName.trim() },
+            emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
+          },
+        });
         if (signError) {
           setError(signError.message);
           return;
         }
+        requiresVerification = !data.session;
       } else {
         const { error: signError } = await supabase.auth.signInWithPassword({
           email,
           password,
         });
         if (signError) {
+          if (signError.message.toLowerCase().includes("email not confirmed")) {
+            router.push(`/verify-email?email=${encodeURIComponent(email)}`);
+            return;
+          }
           setError(signError.message);
           return;
         }
+      }
+      if (requiresVerification) {
+        router.push(`/verify-email?email=${encodeURIComponent(email)}`);
+        return;
       }
       router.push(next);
       router.refresh();
@@ -80,6 +98,14 @@ function AuthForm({ mode }: { mode: "login" | "signup" }) {
         Email or Google. Voyages stay attached to your account.
       </p>
       <form onSubmit={onSubmit} className="mt-10 flex flex-col gap-4">
+        {mode === "signup" ? (
+          <label className="flex flex-col gap-1.5 text-[12px] uppercase tracking-[0.14em] text-ink-soft">
+            Name
+            <input type="text" required minLength={2} autoComplete="name" value={fullName}
+              onChange={(event) => setFullName(event.target.value)}
+              className="rounded-[3px] border border-rule bg-paper px-3 py-2 font-sans text-sm tracking-normal text-ink normal-case" />
+          </label>
+        ) : null}
         <label className="flex flex-col gap-1.5 text-[12px] uppercase tracking-[0.14em] text-ink-soft">
           Email
           <input
@@ -107,7 +133,7 @@ function AuthForm({ mode }: { mode: "login" | "signup" }) {
         <Button type="submit" variant="brass" disabled={pending}>
           {pending ? "Working…" : mode === "login" ? "Login" : "Create desk"}
         </Button>
-        <Button type="button" onClick={onGoogle}>
+        <Button type="button" variant="brass" onClick={onGoogle}>
           Continue with Google
         </Button>
       </form>
