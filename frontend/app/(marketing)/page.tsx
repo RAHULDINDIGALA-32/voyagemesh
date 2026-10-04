@@ -77,7 +77,7 @@ export default async function LandingPage() {
                 href="/signup"
                 className="rounded-[3px] border border-brass px-4 py-2 text-sm text-brass"
               >
-                Open the Chart Room
+                Launch App
               </Link>
               <a href="#method" className="rounded-[3px] border border-rule px-4 py-2 text-sm">
                 Read the plates

@@ -147,8 +147,9 @@ export function Sidebar() {
       </nav>
 
       {!collapsed && (
-        <div className="flex min-h-0 flex-1 flex-col">
-          <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+        <div className="flex min-h-0 flex-1 flex-col ">
+          <p className="px-3 py-1 text-s text-ink-soft mt-2">Trip chats</p>
+          <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 mt-2">
             {chats.map((chat) => {
               const active = pathname === `/app/c/${chat.conversation_id}`;
               return (

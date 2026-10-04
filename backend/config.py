@@ -36,6 +36,7 @@ class Settings(BaseSettings):
 
     frontend_url: str = "http://localhost:3000"
     environment: str = "development"
+    supabase_url: str | None = None
     supabase_jwt_secret: SecretStr | None = None
 
     @property
