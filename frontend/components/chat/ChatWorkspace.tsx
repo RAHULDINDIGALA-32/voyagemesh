@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { Composer, StarterQueries } from "@/components/chat/Composer";
+import { Composer } from "@/components/chat/Composer";
 import { HitlCard } from "@/components/chat/HitlCard";
 import { asTripPayload, streamFollowUp, streamTrip } from "@/lib/api/sse";
 import { getConversation, getTrip } from "@/lib/api/trips";
@@ -18,7 +18,7 @@ function agentLabel(node: string) {
 export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { token, ready } = useAccessToken();
+  const { token, ready, fullName } = useAccessToken();
   const [localMessages, setLocalMessages] = useState<ChatMessage[]>([]);
   const [progress, setProgress] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -58,6 +58,8 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
 
   const payload = livePayload ?? trip.data ?? null;
   const interventionPending = payload?.human_intervention?.status === "pending";
+  const hour = new Date().getHours();
+  const greeting = hour < 5 ? "Good moonlight" : hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : hour < 21 ? "Good evening" : "Good night";
 
   async function dispatch(query: string) {
     if (!token) return;
@@ -162,16 +164,7 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
 
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8">
         <div className="mx-auto max-w-2xl">
-          {!conversationId && messages.length === 0 ? (
-            <>
-              <h1 className="font-display text-4xl leading-tight">New briefing</h1>
-              <p className="mt-3 max-w-lg text-sm leading-relaxed text-ink-soft">
-                Give origin, destination, dates, travelers, and a budget. Specialists will
-                plot the voyage; you remain on the chart.
-              </p>
-              <StarterQueries onPick={dispatch} />
-            </>
-          ) : null}
+          {!conversationId && messages.length === 0 ? <h1 className="mb-8 font-display text-4xl leading-tight">{greeting}{fullName ? `, ${fullName.split(" ")[0]}` : ""}. Where shall we plot?</h1> : null}
 
           {messages.map((message) =>
             message.role === "user" ? (
@@ -216,8 +209,8 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
           {error ? <p className="mt-4 text-sm text-danger">{error}</p> : null}
         </div>
       </div>
-      <div className="mx-auto w-full max-w-2xl">
-        <Composer disabled={busy || interventionPending} onSend={dispatch} />
+      <div className={`mx-auto w-full ${!conversationId && messages.length === 0 ? "max-w-2xl pb-16" : "max-w-2xl"}`}>
+        <Composer centered={!conversationId && messages.length === 0} disabled={busy || interventionPending} onSend={dispatch} />
       </div>
     </div>
   );

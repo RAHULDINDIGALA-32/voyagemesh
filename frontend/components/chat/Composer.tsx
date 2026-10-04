@@ -1,66 +1,13 @@
-const STARTERS = [
-  "Five days in Kyoto from Hyderabad, two travelers, mid-April, budget INR 180000.",
-  "Long weekend in Lisbon from London, one traveler, walking-first, no car.",
-  "Nine days in Japan from Mumbai covering Tokyo and Kanazawa, family of three.",
-];
+"use client";
+import { ArrowUp } from "lucide-react";
+import { useState, type FormEvent } from "react";
 
-export function Composer({
-  disabled,
-  onSend,
-}: {
-  disabled?: boolean;
-  onSend: (query: string) => void;
-}) {
-  return (
-    <form
-      className="border-t border-rule bg-paper p-4"
-      onSubmit={(event) => {
-        event.preventDefault();
-        const form = event.currentTarget;
-        const data = new FormData(form);
-        const query = String(data.get("query") ?? "").trim();
-        if (query.length < 5) return;
-        onSend(query);
-        form.reset();
-      }}
-    >
-      <textarea
-        name="query"
-        required
-        minLength={5}
-        disabled={disabled}
-        placeholder="Origin, destination, dates, travelers, budget"
-        className="h-24 w-full resize-none rounded-[3px] border border-rule bg-paper-raised px-3 py-2 text-sm outline-none focus:border-steel"
-      />
-      <div className="mt-2 flex items-center justify-between">
-        <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-soft">
-          Dispatch
-        </p>
-        <button
-          type="submit"
-          disabled={disabled}
-          className="rounded-[3px] border border-brass px-3 py-1.5 text-xs tracking-wide text-brass disabled:opacity-50"
-        >
-          Send
-        </button>
-      </div>
-    </form>
-  );
+const STARTERS = ["Five days in Kyoto from Hyderabad, two travelers, mid-April, budget INR 180000.","Long weekend in Lisbon from London, one traveler, walking-first, no car.","Nine days in Japan from Mumbai covering Tokyo and Kanazawa, family of three.","A quiet week in Kerala with beaches, food, and no rushed transfers.","Plan a winter city break from Delhi with museums and excellent rail connections.","Build a family-friendly itinerary for Singapore with a comfortable budget.","Find a food-first route through northern Italy for two travelers.","Design a slow, scenic trip through New Zealand with minimal driving.","Plan a monsoon escape from Bengaluru with nature and boutique stays.","Create a practical business trip plan with one free evening each day."];
+
+export function Composer({ disabled, onSend, centered = false }: { disabled?: boolean; onSend: (query: string) => void; centered?: boolean }) {
+  const [value, setValue] = useState("");
+  const submit = (event: FormEvent) => { event.preventDefault(); const query = value.trim(); if (query.length < 5 || disabled) return; onSend(query); setValue(""); };
+  return <div className={centered ? "w-full" : "border-t border-rule bg-paper px-4 py-4"}><form onSubmit={submit} className="relative mx-auto max-w-2xl rounded-xl border border-rule bg-paper-raised p-2 shadow-[0_2px_0_var(--rule)] focus-within:border-steel"><textarea value={value} onChange={(event) => setValue(event.target.value)} disabled={disabled} rows={centered ? 3 : 2} placeholder="Where are you headed? Include dates, travelers, and a budget." className="w-full resize-none bg-transparent px-3 py-2 pr-12 text-sm leading-6 outline-none placeholder:text-ink-soft/70" /><button type="submit" aria-label="Send briefing" disabled={disabled || value.trim().length < 5} className="absolute bottom-3 right-3 flex h-8 w-8 items-center justify-center rounded-full bg-brass text-paper transition-all hover:scale-105 disabled:bg-rule disabled:text-ink-soft disabled:hover:scale-100"><ArrowUp size={17} strokeWidth={1.7} /></button></form><StarterQueries onPick={onSend} centered={centered} /></div>;
 }
 
-export function StarterQueries({ onPick }: { onPick: (query: string) => void }) {
-  return (
-    <div className="mt-10 grid gap-2">
-      {STARTERS.map((query) => (
-        <button
-          key={query}
-          type="button"
-          onClick={() => onPick(query)}
-          className="border border-rule px-3 py-3 text-left text-sm text-ink-soft hover:border-ink"
-        >
-          {query}
-        </button>
-      ))}
-    </div>
-  );
-}
+export function StarterQueries({ onPick, centered = false }: { onPick: (query: string) => void; centered?: boolean }) { const [items] = useState(() => STARTERS.slice(Math.floor(Math.random() * 7), Math.floor(Math.random() * 7) + 3)); return <div className={`mx-auto mt-3 flex max-w-2xl flex-wrap gap-x-4 gap-y-2 ${centered ? "justify-center" : ""}`}>{items.map((query) => <button key={query} type="button" onClick={() => onPick(query)} className="text-left text-xs text-ink-soft transition-colors hover:text-steel">{query}</button>)}</div>; }

@@ -10,12 +10,13 @@ import {
   Settings,
   Sun,
   LogOut,
+  Search,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useEffect, useRef, useState } from "react";
 import { Wordmark } from "@/components/brand/Wordmark";
 import { Stamp } from "@/components/ui/Stamp";
-import { listConversations } from "@/lib/api/trips";
+import { listConversations, listTrips } from "@/lib/api/trips";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
 import { createClient } from "@/lib/supabase/client";
 import { useUiStore } from "@/stores/ui";
@@ -43,6 +44,8 @@ export function Sidebar() {
   const { token, email, fullName } = useAccessToken();
 
   const [accountOpen, setAccountOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchTab, setSearchTab] = useState<"all" | "chats" | "trips">("all");
   const accountRef = useRef<HTMLDivElement>(null);
 
   const { theme, setTheme, resolvedTheme } = useTheme();
@@ -88,6 +91,7 @@ export function Sidebar() {
     queryFn: () => listConversations(token!),
     enabled: Boolean(token),
   });
+  const trips = useQuery({ queryKey: ["trips", token], queryFn: () => listTrips(token!), enabled: Boolean(token && searchOpen) });
 
   const chats = (conversations.data ?? []).filter((chat) => {
     if (!chatSearch.trim()) return true;
@@ -118,7 +122,7 @@ export function Sidebar() {
       }`}
     >
       {/* Header */}
-      <div className="flex items-center justify-between gap-2 border-b border-rule px-3 py-3">
+      <div className="relative flex items-center justify-between gap-2 border-b border-rule px-3 py-3">
         {collapsed ? (
           <span className="font-mono text-[11px] tracking-[0.18em] text-brass">
             VM
@@ -127,6 +131,8 @@ export function Sidebar() {
           <Wordmark href="/app" />
         )}
 
+        <div className="flex items-center gap-1">
+        <button type="button" onClick={() => setSearchOpen((open) => !open)} aria-label="Search chats and trips" className="rounded-[3px] p-1.5 text-ink-soft hover:bg-paper-raised"><Search size={16} strokeWidth={1.25} /></button>
         <button
           type="button"
           onClick={toggleSidebar}
@@ -134,7 +140,8 @@ export function Sidebar() {
           aria-label="Toggle sidebar"
         >
           <PanelLeft size={16} strokeWidth={1.25} />
-        </button>
+        </button></div>
+        {searchOpen ? <div className="absolute left-2 right-2 top-[calc(100%+6px)] z-50 border border-rule bg-paper p-3 shadow-[0_10px_30px_rgba(0,0,0,0.16)]"><input autoFocus value={chatSearch} onChange={(event) => setChatSearch(event.target.value)} placeholder="Search the chart room" className="w-full border-b border-rule bg-transparent px-1 py-2 text-sm outline-none" /><div className="mt-3 flex gap-4 border-b border-rule pb-2 text-[11px] uppercase tracking-[0.12em]">{(["all","chats","trips"] as const).map((tab) => <button key={tab} type="button" onClick={() => setSearchTab(tab)} className={searchTab === tab ? "text-brass" : "text-ink-soft"}>{tab}</button>)}</div><div className="mt-2 max-h-64 overflow-y-auto">{(searchTab !== "trips" ? chats : []).map((chat) => <Link key={chat.conversation_id} onClick={() => setSearchOpen(false)} href={`/app/c/${chat.conversation_id}`} className="block border-b border-rule py-2 text-sm hover:text-steel">{chat.title}<span className="block text-xs text-ink-soft">Chat · {chat.cover?.destination || "Unplotted"}</span></Link>)}{(searchTab !== "chats" ? (trips.data ?? []).filter((trip) => `${trip.title} ${trip.cover?.destination ?? ""}`.toLowerCase().includes(chatSearch.toLowerCase())) : []).map((trip) => <Link key={trip.trip_id} onClick={() => setSearchOpen(false)} href={`/app/trips/${trip.thread_id}`} className="block border-b border-rule py-2 text-sm hover:text-steel">{trip.title}<span className="block text-xs text-ink-soft">Trip · {trip.cover?.destination || "Unplotted"}</span></Link>)}{chatSearch && !chats.length && !trips.data?.length ? <p className="py-4 text-xs text-ink-soft">No matching charts.</p> : null}</div></div> : null}
       </div>
 
       {/* Navigation */}
@@ -171,17 +178,6 @@ export function Sidebar() {
       {/* Conversations */}
       {!collapsed && (
         <div className="flex min-h-0 flex-1 flex-col">
-          <div className="px-3 py-2">
-            <input
-              value={chatSearch}
-              onChange={(event) =>
-                setChatSearch(event.target.value)
-              }
-              placeholder="Search briefings"
-              className="w-full rounded-[3px] border border-rule bg-paper px-2 py-1.5 text-xs text-ink"
-            />
-          </div>
-
           <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
             {chats.map((chat) => {
               const active =
