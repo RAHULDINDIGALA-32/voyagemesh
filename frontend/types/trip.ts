@@ -159,6 +159,15 @@ export type TripPayload = {
   budget_analysis?: string | null;
   itinerary?: string | null;
   trip_document?: TripDocument | null;
+  /** Canonical, field-wise API response. Legacy string fields above remain supported for old trips. */
+  trip_summary?: string;
+  flight_details?: FlightCard;
+  hotel_details?: HotelCard;
+  weather_details?: WeatherCard;
+  budget_details?: BudgetCard;
+  itinerary_details?: ItineraryCard;
+  packing_list?: { summary?: string; items?: PackingItem[] };
+  timeline?: TripTimeline;
   selected_agents?: string[];
   trip_constraints?: Record<string, string>;
   input_guardrail?: Record<string, string | boolean>;

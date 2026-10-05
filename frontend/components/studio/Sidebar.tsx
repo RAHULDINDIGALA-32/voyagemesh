@@ -167,7 +167,9 @@ export function Sidebar() {
                 >
                   <div className="flex items-start justify-between gap-2">
                     <p className="truncate text-sm">{chat.title}</p>
+                    {/*
                     <Stamp tone={statusTone(chat.status)}>{statusLabel(chat.status)}</Stamp>
+                    */}
                   </div>
                   <p className="mt-1 truncate font-mono text-[10px] text-ink-soft">
                     {chat.cover?.destination || "Unplotted"}

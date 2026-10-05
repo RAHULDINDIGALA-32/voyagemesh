@@ -32,6 +32,14 @@ class TravelState(TypedDict, total=False):
     itinerary: str
     final_answer: str
     trip_document: dict
+    trip_summary: str
+    flight_details: dict
+    hotel_details: dict
+    weather_details: dict
+    budget_details: dict
+    itinerary_details: dict
+    packing_list: dict
+    timeline: dict
 
     # Operational Status
     errors: Annotated[list[str], add]

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Stamp } from "@/components/ui/Stamp";
 import type { TripRecord } from "@/types/trip";
 
+
 function stamp(status: string): { tone: "ink" | "brass" | "olive" | "danger"; label: string } {
   if (status === "ready") return { tone: "olive", label: "READY" };
   if (status === "awaiting_you") return { tone: "brass", label: "HOLD" };

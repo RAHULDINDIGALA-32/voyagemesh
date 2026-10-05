@@ -145,7 +145,8 @@ class ProductRepository:
         async with self.pool.connection() as connection:
             result = await connection.execute(
                 """
-                SELECT c.id AS conversation_id, t.id AS trip_id, c.thread_id, c.title, c.status
+                SELECT c.id AS conversation_id, t.id AS trip_id, c.thread_id, c.title, c.status,
+                       t.latest_payload
                 FROM voyagemesh_conversations c
                 JOIN voyagemesh_trips t ON t.conversation_id = c.id
                 WHERE c.thread_id = %s AND c.user_id = %s AND c.deleted_at IS NULL

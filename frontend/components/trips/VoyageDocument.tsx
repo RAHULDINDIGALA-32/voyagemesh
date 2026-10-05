@@ -22,7 +22,8 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
-import { Stamp } from "@/components/ui/Stamp";
+import { ItineraryDays, isItineraryExpanded } from "@/components/trips/ItineraryDays"; // adjust path
+//import { Stamp } from "@/components/ui/Stamp";
 import { downloadPlanPdf } from "@/lib/export/documents";
 import { asTripDocument } from "@/lib/plan/parse";
 import type { TripDocument, TripPayload } from "@/types/trip";
@@ -31,12 +32,6 @@ if (typeof window !== "undefined") {
   gsap.registerPlugin(ScrollTrigger);
 }
 
-/**
- * Walks up from `el` to find the element that actually scrolls. Apps with a
- * fixed shell (sidebar + scrolling <main>) never scroll the window, so
- * ScrollTrigger must be told which element to listen to. Returns `window`
- * when the page itself scrolls.
- */
 function getScrollParent(el: HTMLElement): HTMLElement | Window {
   let node: HTMLElement | null = el.parentElement;
 
@@ -173,6 +168,30 @@ function TimelinePanel({
             {trip.trip_summary || "Your plan is being prepared."}
           </p>
         </section>
+
+        {trip.weather?.summary || trip.weather?.packing_hints?.length ? (
+          <section className="mt-7">
+            <h3 className="font-display text-xl">Weather and preparation</h3>
+            {trip.weather.summary ? (
+              <p className="mt-2 text-sm leading-6 text-ink-soft">
+                {trip.weather.summary}
+              </p>
+            ) : null}
+            {trip.weather.metric ? (
+              <p className="mt-2 font-mono text-xs text-brass">
+                {trip.weather.metric}
+                {trip.weather.metric_label ? ` · ${trip.weather.metric_label}` : ""}
+              </p>
+            ) : null}
+            {trip.weather.packing_hints?.length ? (
+              <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-ink-soft">
+                {trip.weather.packing_hints.map((hint, index) => (
+                  <li key={`${hint}-${index}`}>{hint}</li>
+                ))}
+              </ul>
+            ) : null}
+          </section>
+        ) : null}
 
         <section className="mt-7">
           <h3 className="font-display text-xl">Packing checklist</h3>
@@ -463,6 +482,8 @@ export function VoyageDocument({
     };
   }, [layout?.key]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const expanded = isItineraryExpanded(itinerary?.days);
+
   return (
     <article className="mx-auto max-w-6xl px-4 pb-32 pt-8 sm:px-8 sm:pb-40 sm:pt-10">
       <header className="mb-8 flex flex-wrap items-start justify-between gap-5">
@@ -481,6 +502,7 @@ export function VoyageDocument({
           </p>
         </div>
 
+        {/*
         <Stamp
           tone={
             payload.status === "completed" || payload.status === "ready"
@@ -490,6 +512,7 @@ export function VoyageDocument({
         >
           {payload.status.replaceAll("_", " ")}
         </Stamp>
+        */}
       </header>
 
       <div className="mb-10 flex flex-wrap gap-2">
@@ -695,7 +718,7 @@ export function VoyageDocument({
 
                 {!budget?.lines?.length ? (
                   <p className="text-sm text-ink-soft">
-                    Budget line items are not available yet.
+                    Budget details are not available yet.
                   </p>
                 ) : null}
               </dl>
@@ -706,8 +729,8 @@ export function VoyageDocument({
         <div className={SPACER} aria-hidden="true" />
 
         {/* Itinerary — right */}
-        <div ref={setStop(4)} className="relative z-10 md:ml-[48%]">
-          <div className="js-stop" data-side="1">
+        <div ref={setStop(4)} className={`relative z-10 ${expanded ? "" : "md:ml-[48%]"}`}>
+          <div className="js-stop" data-side={expanded ? 0 : 1}>
             <Card
               title="Itinerary"
               icon={<CalendarDays size={19} />}
@@ -721,7 +744,8 @@ export function VoyageDocument({
               ) : null}
 
               <div className="mt-4 space-y-3">
-                {(itinerary?.days ?? []).slice(0, 3).map((day, index) => (
+                {/*
+                {(itinerary?.days ?? []).map((day, index) => (
                   <div
                     key={`${day.day}-${index}`}
                     className="border-t border-rule pt-3"
@@ -743,6 +767,9 @@ export function VoyageDocument({
                     ) : null}
                   </div>
                 ))}
+                  */}
+
+                <ItineraryDays days={itinerary?.days ?? []} />
 
                 {!itinerary?.days?.length ? (
                   <p className="text-sm text-ink-soft">

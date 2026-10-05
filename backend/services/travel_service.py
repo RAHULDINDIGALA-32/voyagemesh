@@ -79,17 +79,32 @@ class TravelService:
         thread_id: str,
         workflow_token: str | None = None,
     ) -> dict:
+        document = result.get("trip_document")
+        if not isinstance(document, dict):
+            document = {}
+
+        # `trip_document` remains the complete portable document. These named
+        # fields are the stable API contract for clients that render one trip
+        # area at a time, rather than parsing LLM text or JSON strings.
         result_payload = {
             "request_id": request_id,
             "thread_id": thread_id,
-            "status": result.get("execution_status", "completed"),
-            "answer": result.get("final_answer"),
+            "status": result.get("execution_status", result.get("status", "completed")),
+            "answer": result.get("final_answer", result.get("answer")),
             "flight_results": result.get("flight_results"),
             "hotel_results": result.get("hotel_results"),
             "weather_results": result.get("weather_results"),
             "budget_analysis": result.get("budget_analysis"),
             "itinerary": result.get("itinerary"),
             "trip_document": result.get("trip_document") or {},
+            "trip_summary": result.get("trip_summary") or document.get("trip_summary") or "",
+            "flight_details": result.get("flight_details") or document.get("flights") or {},
+            "hotel_details": result.get("hotel_details") or document.get("hotels") or {},
+            "weather_details": result.get("weather_details") or document.get("weather") or {},
+            "budget_details": result.get("budget_details") or document.get("budget") or {},
+            "itinerary_details": result.get("itinerary_details") or document.get("itinerary") or {},
+            "packing_list": result.get("packing_list") or document.get("packing") or {},
+            "timeline": result.get("timeline") or document.get("timeline") or {},
             "selected_agents": result.get("selected_agents", []),
             "trip_constraints": result.get("trip_constraints", {}),
             "input_guardrail": result.get("input_guardrail", {}),
@@ -164,7 +179,7 @@ class TravelService:
         )
 
         await graph.ainvoke(self._initial_state(query, request_id, token_hash), config=config)
-        result = await self.get_trip(thread_id, user_id)
+        result = await self.get_trip(thread_id, user_id, prefer_persisted=False)
         await self._sync_pending_intervention(thread_id, await self._get_state_values(thread_id))
         result["workflow_token"] = workflow_token
         result["conversation_id"] = owned["conversation_id"]
@@ -216,7 +231,7 @@ class TravelService:
                     },
                 }
 
-        result = await self.get_trip(thread_id, user_id)
+        result = await self.get_trip(thread_id, user_id, prefer_persisted=False)
         await self._sync_pending_intervention(thread_id, await self._get_state_values(thread_id))
         result["conversation_id"] = owned["conversation_id"]
         result["trip_id"] = owned["trip_id"]
@@ -241,18 +256,36 @@ class TravelService:
             raise LookupError("Trip not found")
         return snapshot.values
 
-    async def get_trip(self, thread_id: str, user_id: str | None = None) -> dict:
+    async def get_trip(
+        self,
+        thread_id: str,
+        user_id: str | None = None,
+        *,
+        prefer_persisted: bool = True,
+    ) -> dict:
         if user_id is not None:
             owned = await self._product().require_thread(thread_id, user_id)
         else:
             owned = None
-        values = await self._get_state_values(thread_id)
-        result = self._format_result(
-            values,
-            values.get("request_id", ""),
-            thread_id,
-        )
+        # Supabase is the durable source for an already generated plan. LangGraph
+        # checkpoints can be unavailable after a process restart, and must not
+        # cause a completed document to render as an empty trip.
+        stored_payload = owned.get("latest_payload") if owned is not None else None
+        if prefer_persisted and isinstance(stored_payload, dict) and stored_payload:
+            result = self._format_result(
+                stored_payload,
+                str(stored_payload.get("request_id") or ""),
+                thread_id,
+            )
+        else:
+            values = await self._get_state_values(thread_id)
+            result = self._format_result(
+                values,
+                values.get("request_id", ""),
+                thread_id,
+            )
         if owned is not None:
+            result["thread_id"] = thread_id
             result["conversation_id"] = str(owned["conversation_id"])
             result["trip_id"] = str(owned["trip_id"])
             result["title"] = owned["title"]
@@ -329,7 +362,7 @@ class TravelService:
         state["trip_constraints"] = values.get("trip_constraints") or {}
         state["user_preferences"] = values.get("user_preferences") or {}
         await graph.ainvoke(state, config=config)
-        result = await self.get_trip(thread_id, user_id)
+        result = await self.get_trip(thread_id, user_id, prefer_persisted=False)
         await self._sync_pending_intervention(thread_id, await self._get_state_values(thread_id))
         result["workflow_token"] = workflow_token
         await self._persist_result(thread_id, user_id, result)
@@ -372,7 +405,7 @@ class TravelService:
                     "data": {"node": node_name, "status": "completed"},
                 }
 
-        result = await self.get_trip(thread_id, user_id)
+        result = await self.get_trip(thread_id, user_id, prefer_persisted=False)
         await self._sync_pending_intervention(thread_id, await self._get_state_values(thread_id))
         result["workflow_token"] = workflow_token
         await self._persist_result(thread_id, user_id, result)

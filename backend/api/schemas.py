@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -29,6 +29,14 @@ class TripResponse(BaseModel):
     budget_analysis: str | None = None
     itinerary: str | None = None
     trip_document: dict = Field(default_factory=dict)
+    trip_summary: str = ""
+    flight_details: dict[str, Any] = Field(default_factory=dict)
+    hotel_details: dict[str, Any] = Field(default_factory=dict)
+    weather_details: dict[str, Any] = Field(default_factory=dict)
+    budget_details: dict[str, Any] = Field(default_factory=dict)
+    itinerary_details: dict[str, Any] = Field(default_factory=dict)
+    packing_list: dict[str, Any] = Field(default_factory=dict)
+    timeline: dict[str, Any] = Field(default_factory=dict)
     selected_agents: list[str] = Field(default_factory=list)
     trip_constraints: dict[str, str] = Field(default_factory=dict)
     input_guardrail: dict[str, str | bool] = Field(default_factory=dict)

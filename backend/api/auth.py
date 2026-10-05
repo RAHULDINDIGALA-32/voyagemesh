@@ -3,14 +3,19 @@ from uuid import UUID
 import jwt
 from jwt import PyJWKClient
 from jwt.exceptions import PyJWKClientError
-from fastapi import Depends, HTTPException
+from fastapi import HTTPException, Security
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
 from config import get_settings
 
 
-bearer_scheme = HTTPBearer(auto_error=False)
+bearer_scheme = HTTPBearer(
+    auto_error=False,
+    scheme_name="SupabaseBearer",
+    bearerFormat="JWT",
+    description="Supabase user access token. Paste the token only; Swagger adds the Bearer prefix.",
+)
 _jwks_clients: dict[str, PyJWKClient] = {}
 
 
@@ -20,7 +25,7 @@ class AuthUser(BaseModel):
 
 
 def get_current_user(
-    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    credentials: HTTPAuthorizationCredentials | None = Security(bearer_scheme),
 ) -> AuthUser:
     settings = get_settings()
     if settings.supabase_jwt_secret is None and not settings.supabase_url:

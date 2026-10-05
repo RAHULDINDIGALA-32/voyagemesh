@@ -9,6 +9,23 @@ from agents.structured import (
 from llm.client import get_llm
 
 
+def _result(chart: FinalChart, state: dict) -> dict:
+    """Return the chat acknowledgement and canonical field-wise trip payload."""
+    document = assemble_trip_document(state, chart)
+    return {
+        "final_answer": chart.chat_message,
+        "trip_document": document,
+        "trip_summary": document["trip_summary"],
+        "flight_details": document["flights"],
+        "hotel_details": document["hotels"],
+        "weather_details": document["weather"],
+        "budget_details": document["budget"],
+        "itinerary_details": document["itinerary"],
+        "packing_list": document["packing"],
+        "timeline": document["timeline"],
+    }
+
+
 async def final_agent(state: dict) -> dict:
     try:
         response = await get_llm().ainvoke(
@@ -60,12 +77,7 @@ Itinerary:
         chart = parsed if isinstance(parsed, FinalChart) else fallback_final(state)
         if not chart.chat_message.strip():
             chart = fallback_final(state)
-        document = assemble_trip_document(state, chart)
-        return {"final_answer": chart.chat_message, "trip_document": document}
+        return _result(chart, state)
     except Exception as exc:
         chart = fallback_final(state)
-        return {
-            "final_answer": chart.chat_message,
-            "trip_document": assemble_trip_document(state, chart),
-            "errors": [f"final_agent: {type(exc).__name__}"],
-        }
+        return {**_result(chart, state), "errors": [f"final_agent: {type(exc).__name__}"]}
