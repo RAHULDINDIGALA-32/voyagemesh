@@ -1,15 +1,19 @@
 "use client";
 
 import { useTheme } from "next-themes";
+import { useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/Button";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 
+const subscribeToHydration = () => () => {};
+
 export default function SettingsPage() {
   const { email } = useAccessToken();
   const { theme, setTheme } = useTheme();
   const router = useRouter();
+  const mounted = useSyncExternalStore(subscribeToHydration, () => true, () => false);
 
   return (
     <main className="mx-auto max-w-xl px-8 py-10">
@@ -27,7 +31,7 @@ export default function SettingsPage() {
               <Button
                 key={value}
                 type="button"
-                variant={theme === value ? "brass" : "rule"}
+                variant={mounted && theme === value ? "brass" : "rule"}
                 onClick={() => setTheme(value)}
               >
                 {value}

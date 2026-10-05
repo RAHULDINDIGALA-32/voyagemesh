@@ -13,7 +13,7 @@ import {
   Search,
 } from "lucide-react";
 import { useTheme } from "next-themes";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Wordmark } from "@/components/brand/Wordmark";
 import { Stamp } from "@/components/ui/Stamp";
 import { listConversations } from "@/lib/api/trips";
@@ -35,13 +35,18 @@ function statusLabel(status: string) {
   return "DRAFT";
 }
 
+const subscribeToHydration = () => () => {};
+
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { token, email, fullName } = useAccessToken();
   const [accountOpen, setAccountOpen] = useState(false);
   const accountRef = useRef<HTMLDivElement>(null);
-  const { theme, setTheme, resolvedTheme } = useTheme();
+  const { setTheme, resolvedTheme } = useTheme();
+  // Keep the server HTML and the first client render identical. next-themes reads
+  // localStorage/media settings only after hydration.
+  const mounted = useSyncExternalStore(subscribeToHydration, () => true, () => false);
 
   const collapsed = useUiStore((state) => state.sidebarCollapsed);
   const toggleSidebar = useUiStore((state) => state.toggleSidebar);
@@ -215,7 +220,7 @@ export function Sidebar() {
             className="rounded-[3px] p-2 text-ink-soft hover:bg-paper-raised"
             aria-label="Toggle theme"
           >
-            {theme === "dark" ? (
+            {mounted && resolvedTheme === "dark" ? (
               <Sun size={16} strokeWidth={1.25} />
             ) : (
               <Moon size={16} strokeWidth={1.25} />

@@ -20,10 +20,10 @@ export default function TripDocumentPage({
   });
 
   if (trip.isError) {
-    return <p className="p-8 text-sm text-danger">This chart could not be opened.</p>;
+    return <p className="p-8 text-sm text-danger">This Voyage chart could not be opened.</p>;
   }
   if (!trip.data) {
-    return <p className="p-8 text-sm text-ink-soft">Drawing chart…</p>;
+    return <p className="p-8 text-sm text-ink-soft">Preparing Voyage chart…</p>;
   }
 
   return (
