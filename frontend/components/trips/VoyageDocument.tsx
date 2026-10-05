@@ -1,11 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import gsap from "gsap";
+import { ScrollTrigger } from "gsap/ScrollTrigger";
 import {
   BedDouble,
   CalendarDays,
   CircleDollarSign,
+  Flag,
   MapPin,
   Plane,
   Route,
@@ -18,10 +27,41 @@ import { downloadPlanPdf } from "@/lib/export/documents";
 import { asTripDocument } from "@/lib/plan/parse";
 import type { TripDocument, TripPayload } from "@/types/trip";
 
+if (typeof window !== "undefined") {
+  gsap.registerPlugin(ScrollTrigger);
+}
+
+/**
+ * Walks up from `el` to find the element that actually scrolls. Apps with a
+ * fixed shell (sidebar + scrolling <main>) never scroll the window, so
+ * ScrollTrigger must be told which element to listen to. Returns `window`
+ * when the page itself scrolls.
+ */
+function getScrollParent(el: HTMLElement): HTMLElement | Window {
+  let node: HTMLElement | null = el.parentElement;
+
+  while (node && node !== document.body && node !== document.documentElement) {
+    const { overflowY } = getComputedStyle(node);
+    if (
+      /(auto|scroll|overlay)/.test(overflowY) &&
+      node.scrollHeight > node.clientHeight
+    ) {
+      return node;
+    }
+    node = node.parentElement;
+  }
+
+  return window;
+}
+
 const shown = (value?: string) => value?.trim() || "Not specified";
 
 const facts = (...items: Array<string | undefined>) =>
   items.filter((item) => item?.trim()).join(" · ");
+
+/* ------------------------------------------------------------------ */
+/*  Building blocks                                                    */
+/* ------------------------------------------------------------------ */
 
 function Card({
   title,
@@ -37,7 +77,7 @@ function Card({
   children: ReactNode;
 }) {
   return (
-    <section className="relative rounded-2xl border border-rule bg-paper/95 p-5 shadow-[0_10px_30px_-22px_color-mix(in_oklab,var(--ink)_60%,transparent)]">
+    <section className="relative rounded-2xl border border-rule bg-paper/95 p-5 shadow-[0_10px_30px_-22px_color-mix(in_oklab,var(--ink)_60%,transparent)] transition-[border-color,box-shadow] duration-300 hover:border-brass/60 hover:shadow-[0_18px_40px_-24px_color-mix(in_oklab,var(--ink)_70%,transparent)]">
       <div className="mb-4 flex items-start justify-between gap-3">
         <div className="flex items-center gap-2 text-brass">
           {icon}
@@ -59,29 +99,6 @@ function Card({
   );
 }
 
-function Connector({
-  icon,
-  side,
-}: {
-  icon: ReactNode;
-  side: "left" | "right";
-}) {
-  return (
-    <div
-      className={`relative h-16 ${
-        side === "left" ? "md:ml-[29%]" : "md:mr-[29%]"
-      }`}
-      aria-hidden="true"
-    >
-      <div className="absolute left-1/2 top-0 h-8 border-l border-dashed border-brass/70" />
-      <div className="absolute left-1/2 top-7 grid size-8 -translate-x-1/2 place-items-center rounded-full border border-brass bg-paper text-brass">
-        {icon}
-      </div>
-      <div className="absolute left-1/2 top-[60px] h-4 border-l border-dashed border-brass/70" />
-    </div>
-  );
-}
-
 function Endpoint({
   label,
   location,
@@ -93,7 +110,11 @@ function Endpoint({
 }) {
   return (
     <div className="mx-auto flex max-w-md items-center justify-center gap-3">
-      <span className="grid size-10 place-items-center rounded-full border border-brass bg-paper-raised text-brass">
+      <span className="relative grid size-11 shrink-0 place-items-center rounded-full border border-brass bg-paper-raised text-brass">
+        <span
+          className="absolute inset-0 rounded-full border border-brass/50 motion-safe:animate-ping"
+          aria-hidden="true"
+        />
         {icon}
       </span>
       <div className="rounded-xl border border-rule bg-paper-raised px-4 py-3">
@@ -105,6 +126,10 @@ function Endpoint({
     </div>
   );
 }
+
+/* ------------------------------------------------------------------ */
+/*  Timeline side panel (unchanged)                                    */
+/* ------------------------------------------------------------------ */
 
 function TimelinePanel({
   trip,
@@ -212,6 +237,68 @@ function TimelinePanel({
   );
 }
 
+/* ------------------------------------------------------------------ */
+/*  Curved route: measure real DOM positions → draw S-curves           */
+/* ------------------------------------------------------------------ */
+
+type Segment = { d: string; x: number; y: number };
+type Layout = { w: number; h: number; segs: Segment[]; key: string };
+
+/**
+ * Each stop (endpoint or card) is a wrapper element. A curve leaves the
+ * bottom-centre of one stop and enters the top-centre of the next using a
+ * cubic Bézier with vertical tangents, which gives the S-shaped swing in
+ * the sketch whenever stops sit on opposite sides, and a gentle straight
+ * drop on mobile where they stack in one column.
+ */
+function buildLayout(container: HTMLElement, stops: HTMLElement[]): Layout {
+  const box = container.getBoundingClientRect();
+
+  const anchors = stops.map((el) => {
+    const r = el.getBoundingClientRect();
+    return {
+      cx: Math.round(r.left - box.left + r.width / 2),
+      top: Math.round(r.top - box.top),
+      bottom: Math.round(r.bottom - box.top),
+    };
+  });
+
+  const segs: Segment[] = [];
+
+  for (let i = 0; i < anchors.length - 1; i++) {
+    const a = anchors[i];
+    const b = anchors[i + 1];
+    const x1 = a.cx;
+    const y1 = a.bottom;
+    const x2 = b.cx;
+    const y2 = b.top;
+    const pull = (y2 - y1) * 0.55;
+
+    segs.push({
+      d: `M ${x1} ${y1} C ${x1} ${y1 + pull}, ${x2} ${y2 - pull}, ${x2} ${y2}`,
+      // The curve is symmetric, so t = 0.5 lands on the plain midpoint.
+      x: Math.round((x1 + x2) / 2),
+      y: Math.round((y1 + y2) / 2),
+    });
+  }
+
+  const w = Math.round(box.width);
+  const h = Math.round(box.height);
+
+  return {
+    w,
+    h,
+    segs,
+    key: `${w}x${h}|${segs.map((s) => s.d).join("|")}`,
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/*  Page                                                               */
+/* ------------------------------------------------------------------ */
+
+const SPACER = "h-24 md:h-32";
+
 export function VoyageDocument({
   payload,
   conversationId,
@@ -221,14 +308,163 @@ export function VoyageDocument({
 }) {
   const trip = asTripDocument(payload);
   const [timelineOpen, setTimelineOpen] = useState(false);
+  const [layout, setLayout] = useState<Layout | null>(null);
 
   const flight = trip.flights;
   const hotel = trip.hotels;
   const budget = trip.budget;
   const itinerary = trip.itinerary;
 
+  const routeRef = useRef<HTMLDivElement>(null);
+  // 0 source · 1 flight · 2 hotels · 3 budget · 4 itinerary · 5 destination
+  const stopRefs = useRef<Array<HTMLDivElement | null>>([]);
+
+  const setStop = (index: number) => (el: HTMLDivElement | null) => {
+    stopRefs.current[index] = el;
+  };
+
+  // Icon sitting on each curve (source→flight, flight→hotels, …)
+  const connectorIcons = [
+    <Plane key="plane" size={16} />,
+    <BedDouble key="bed" size={16} />,
+    <CircleDollarSign key="budget" size={16} />,
+    <CalendarDays key="itinerary" size={16} />,
+    <Route key="route" size={16} />,
+  ];
+
+  /* ---- measure ---- */
+  const measure = useCallback(() => {
+    const container = routeRef.current;
+    const stops = stopRefs.current.filter(Boolean) as HTMLElement[];
+    if (!container || stops.length < 2) return;
+
+    const next = buildLayout(container, stops);
+    setLayout((prev) => (prev?.key === next.key ? prev : next));
+  }, []);
+
+  useEffect(() => {
+    measure();
+
+    const container = routeRef.current;
+    let frame = 0;
+    const schedule = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(measure);
+    };
+
+    const observer = new ResizeObserver(schedule);
+    if (container) observer.observe(container);
+    window.addEventListener("resize", schedule);
+    void document.fonts?.ready.then(schedule);
+
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+      window.removeEventListener("resize", schedule);
+    };
+  }, [measure, payload]);
+
+  /* ---- animate (GSAP) ---- */
+  useEffect(() => {
+    const root = routeRef.current;
+    if (!layout || !root) return;
+
+    const reduced = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+
+    // The element that really scrolls (window, or an app-shell <main>).
+    const scroller = getScrollParent(root);
+
+    const ctx = gsap.context(() => {
+      const progress = gsap.utils.toArray<SVGPathElement>(".js-progress");
+
+      if (reduced) {
+        gsap.set(progress, { strokeDashoffset: 0 });
+        return;
+      }
+
+      // 1. Route draws itself as you scroll (scrubbed).
+      progress.forEach((path) => {
+        gsap.to(path, {
+          strokeDashoffset: 0,
+          ease: "none",
+          scrollTrigger: {
+            trigger: path,
+            scroller,
+            start: "clamp(top 80%)",
+            end: "clamp(bottom 45%)",
+            scrub: 0.6,
+          },
+        });
+      });
+
+      // 2. Dashed guide keeps drifting along the route.
+      gsap.to(".js-flow", {
+        strokeDashoffset: -10,
+        duration: 1.1,
+        ease: "none",
+        repeat: -1,
+      });
+
+      // 3. Icon nodes pop in as the line reaches them.
+      gsap.utils.toArray<HTMLElement>(".js-node").forEach((node) => {
+        gsap.from(node, {
+          scale: 0.3,
+          opacity: 0,
+          duration: 0.55,
+          ease: "back.out(2.2)",
+          scrollTrigger: {
+            trigger: node,
+            scroller,
+            start: "clamp(top 88%)",
+            toggleActions: "play none none reverse",
+          },
+        });
+      });
+
+      // 4. Cards and endpoints glide in from the side they sit on.
+      gsap.utils.toArray<HTMLElement>(".js-stop").forEach((el) => {
+        const side = Number(el.dataset.side ?? 0);
+        gsap.from(el, {
+          opacity: 0,
+          y: 36,
+          x: side * 28,
+          duration: 0.7,
+          ease: "power3.out",
+          scrollTrigger: {
+            trigger: el,
+            scroller,
+            start: "clamp(top 88%)",
+            toggleActions: "play none none reverse",
+          },
+        });
+      });
+    }, root);
+
+    // Failsafe: anything still hidden shortly after setup and already on
+    // screen or above the fold gets revealed rather than left invisible.
+    const failsafe = window.setTimeout(() => {
+      gsap.utils.toArray<HTMLElement>(".js-stop", root).forEach((el) => {
+        const r = el.getBoundingClientRect();
+        if (r.top < window.innerHeight && Number(getComputedStyle(el).opacity) === 0) {
+          gsap.to(el, { opacity: 1, x: 0, y: 0, duration: 0.5 });
+        }
+      });
+    }, 1200);
+
+    // Positions were measured before fonts/data settled; recompute once.
+    const refresh = requestAnimationFrame(() => ScrollTrigger.refresh());
+
+    return () => {
+      cancelAnimationFrame(refresh);
+      window.clearTimeout(failsafe);
+      ctx.revert();
+    };
+  }, [layout?.key]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
-    <article className="mx-auto max-w-6xl px-4 py-8 sm:px-8 sm:py-10">
+    <article className="mx-auto max-w-6xl px-4 pb-32 pt-8 sm:px-8 sm:pb-40 sm:pt-10">
       <header className="mb-8 flex flex-wrap items-start justify-between gap-5">
         <div>
           <p className="font-mono text-[10px] uppercase tracking-[.18em] text-brass">
@@ -278,202 +514,273 @@ export function VoyageDocument({
         </Button>
       </div>
 
-      <Endpoint
-        label="Starting from"
-        location={trip.origin}
-        icon={<MapPin size={19} />}
-      />
-
-      <Connector side="left" icon={<Plane size={15} />} />
-
-      <div className="space-y-0">
-        <div className="md:mr-[48%]">
-          <Card
-            title="Flight"
-            icon={<Plane size={19} />}
-            metric={flight?.metric}
-            label={flight?.metric_label}
+      {/* ============ Route ============ */}
+      <div ref={routeRef} className="relative">
+        {/* Curves live behind everything */}
+        {layout ? (
+          <svg
+            className="pointer-events-none absolute left-0 top-0 z-0 overflow-visible text-brass"
+            width={layout.w}
+            height={layout.h}
+            viewBox={`0 0 ${layout.w} ${layout.h}`}
+            fill="none"
+            aria-hidden="true"
           >
-            {flight?.summary ? (
-              <p className="text-sm leading-6 text-ink-soft">
-                {flight.summary}
-              </p>
-            ) : null}
+            {layout.segs.map((seg, i) => (
+              <g key={i}>
+                {/* faint dashed guide, always visible */}
+                <path
+                  className="js-flow"
+                  d={seg.d}
+                  stroke="currentColor"
+                  strokeOpacity={0.4}
+                  strokeWidth={1.25}
+                  strokeDasharray="3 7"
+                  strokeLinecap="round"
+                />
+                {/* solid brass line that draws on scroll */}
+                <path
+                  className="js-progress"
+                  d={seg.d}
+                  pathLength={1}
+                  stroke="currentColor"
+                  strokeWidth={1.75}
+                  strokeLinecap="round"
+                  style={{ strokeDasharray: 1, strokeDashoffset: 1 }}
+                />
+              </g>
+            ))}
+          </svg>
+        ) : null}
 
-            <div className="mt-4 space-y-3">
-              {(flight?.options ?? []).slice(0, 2).map((option, index) => (
-                <div key={index} className="border-t border-rule pt-3">
-                  <p className="text-sm font-medium">
-                    {facts(option.airline, option.flight_number) ||
-                      "Route option"}
-                  </p>
-                  <p className="mt-1 text-xs text-ink-soft">
-                    {facts(
-                      option.origin && option.destination
-                        ? `${option.origin} → ${option.destination}`
-                        : undefined,
-                      option.departs,
-                      option.arrives,
-                      option.duration,
-                    )}
-                  </p>
-                  <p className="mt-1 text-xs text-ink-soft">
-                    {facts(option.cabin, option.estimate, option.notes)}
-                  </p>
-                </div>
-              ))}
-
-              {!(flight?.options?.length) ? (
-                <p className="text-sm text-ink-soft">
-                  Flight details are not available yet.
-                </p>
-              ) : null}
-            </div>
-          </Card>
+        {/* Source — sits right of centre, like the sketch */}
+        <div ref={setStop(0)} className="relative z-10 md:ml-[48%]">
+          <div className="js-stop" data-side="0">
+            <Endpoint
+              label="Starting from"
+              location={trip.origin}
+              icon={<MapPin size={19} />}
+            />
+          </div>
         </div>
 
-        <Connector side="right" icon={<BedDouble size={15} />} />
+        <div className={SPACER} aria-hidden="true" />
 
-        <div className="md:ml-[48%]">
-          <Card
-            title="Hotels"
-            icon={<BedDouble size={19} />}
-            metric={hotel?.metric}
-            label={hotel?.metric_label}
-          >
-            {hotel?.summary ? (
-              <p className="text-sm leading-6 text-ink-soft">
-                {hotel.summary}
-              </p>
-            ) : null}
+        {/* Flight — left */}
+        <div ref={setStop(1)} className="relative z-10 md:mr-[48%]">
+          <div className="js-stop" data-side="-1">
+            <Card
+              title="Flight"
+              icon={<Plane size={19} />}
+              metric={flight?.metric}
+              label={flight?.metric_label}
+            >
+              {flight?.summary ? (
+                <p className="text-sm leading-6 text-ink-soft">
+                  {flight.summary}
+                </p>
+              ) : null}
 
-            <div className="mt-4 space-y-3">
-              {(hotel?.options ?? []).slice(0, 2).map((option, index) => (
-                <div key={index} className="border-t border-rule pt-3">
-                  <p className="text-sm font-medium">
-                    {option.name || "Stay option"}
-                  </p>
-                  <p className="mt-1 text-xs text-ink-soft">
-                    {facts(
-                      option.area,
-                      option.nights,
-                      option.style,
-                      option.estimate_per_night,
-                    )}
-                  </p>
-                  {option.why ? (
-                    <p className="mt-1 text-xs leading-5 text-ink-soft">
-                      {option.why}
+              <div className="mt-4 space-y-3">
+                {(flight?.options ?? []).slice(0, 2).map((option, index) => (
+                  <div key={index} className="border-t border-rule pt-3">
+                    <p className="text-sm font-medium">
+                      {facts(option.airline, option.flight_number) ||
+                        "Route option"}
                     </p>
-                  ) : null}
-                </div>
-              ))}
-
-              {!(hotel?.options?.length) ? (
-                <p className="text-sm text-ink-soft">
-                  Accommodation details are not available yet.
-                </p>
-              ) : null}
-            </div>
-          </Card>
-        </div>
-
-        <Connector
-          side="left"
-          icon={<CircleDollarSign size={15} />}
-        />
-
-        <div className="md:mr-[48%]">
-          <Card
-            title="Budget"
-            icon={<CircleDollarSign size={19} />}
-            metric={budget?.estimated_total || budget?.metric}
-            label={budget?.metric_label}
-          >
-            {budget?.summary ? (
-              <p className="text-sm leading-6 text-ink-soft">
-                {budget.summary}
-              </p>
-            ) : null}
-
-            <dl className="mt-4 space-y-2 border-t border-rule pt-3">
-              {(budget?.lines ?? []).slice(0, 5).map((line, index) => (
-                <div
-                  key={index}
-                  className="flex items-baseline justify-between gap-4 text-xs"
-                >
-                  <dt>{line.category}</dt>
-                  <dd className="text-right text-ink-soft">
-                    {facts(line.amount, line.notes)}
-                  </dd>
-                </div>
-              ))}
-
-              {!(budget?.lines?.length) ? (
-                <p className="text-sm text-ink-soft">
-                  Budget line items are not available yet.
-                </p>
-              ) : null}
-            </dl>
-          </Card>
-        </div>
-
-        <Connector side="right" icon={<CalendarDays size={15} />} />
-
-        <div className="md:ml-[48%]">
-          <Card
-            title="Itinerary"
-            icon={<CalendarDays size={19} />}
-            metric={itinerary?.metric}
-            label={itinerary?.metric_label}
-          >
-            {itinerary?.summary ? (
-              <p className="text-sm leading-6 text-ink-soft">
-                {itinerary.summary}
-              </p>
-            ) : null}
-
-            <div className="mt-4 space-y-3">
-              {(itinerary?.days ?? []).slice(0, 3).map((day, index) => (
-                <div
-                  key={`${day.day}-${index}`}
-                  className="border-t border-rule pt-3"
-                >
-                  <p className="text-sm font-medium">
-                    {facts(day.day, day.title)}
-                  </p>
-                  <p className="mt-1 text-xs leading-5 text-ink-soft">
-                    {day.summary}
-                  </p>
-                  {day.stops?.[0] ? (
                     <p className="mt-1 text-xs text-ink-soft">
                       {facts(
-                        day.stops[0].time,
-                        day.stops[0].title,
-                        day.stops[0].place,
+                        option.origin && option.destination
+                          ? `${option.origin} → ${option.destination}`
+                          : undefined,
+                        option.departs,
+                        option.arrives,
+                        option.duration,
                       )}
                     </p>
-                  ) : null}
-                </div>
-              ))}
+                    <p className="mt-1 text-xs text-ink-soft">
+                      {facts(option.cabin, option.estimate, option.notes)}
+                    </p>
+                  </div>
+                ))}
 
-              {!(itinerary?.days?.length) ? (
-                <p className="text-sm text-ink-soft">
-                  Day plans are not available yet.
+                {!flight?.options?.length ? (
+                  <p className="text-sm text-ink-soft">
+                    Flight details are not available yet.
+                  </p>
+                ) : null}
+              </div>
+            </Card>
+          </div>
+        </div>
+
+        <div className={SPACER} aria-hidden="true" />
+
+        {/* Hotels — right */}
+        <div ref={setStop(2)} className="relative z-10 md:ml-[48%]">
+          <div className="js-stop" data-side="1">
+            <Card
+              title="Hotels"
+              icon={<BedDouble size={19} />}
+              metric={hotel?.metric}
+              label={hotel?.metric_label}
+            >
+              {hotel?.summary ? (
+                <p className="text-sm leading-6 text-ink-soft">
+                  {hotel.summary}
                 </p>
               ) : null}
-            </div>
-          </Card>
+
+              <div className="mt-4 space-y-3">
+                {(hotel?.options ?? []).slice(0, 2).map((option, index) => (
+                  <div key={index} className="border-t border-rule pt-3">
+                    <p className="text-sm font-medium">
+                      {option.name || "Stay option"}
+                    </p>
+                    <p className="mt-1 text-xs text-ink-soft">
+                      {facts(
+                        option.area,
+                        option.nights,
+                        option.style,
+                        option.estimate_per_night,
+                      )}
+                    </p>
+                    {option.why ? (
+                      <p className="mt-1 text-xs leading-5 text-ink-soft">
+                        {option.why}
+                      </p>
+                    ) : null}
+                  </div>
+                ))}
+
+                {!hotel?.options?.length ? (
+                  <p className="text-sm text-ink-soft">
+                    Accommodation details are not available yet.
+                  </p>
+                ) : null}
+              </div>
+            </Card>
+          </div>
         </div>
+
+        <div className={SPACER} aria-hidden="true" />
+
+        {/* Budget — left */}
+        <div ref={setStop(3)} className="relative z-10 md:mr-[48%]">
+          <div className="js-stop" data-side="-1">
+            <Card
+              title="Budget"
+              icon={<CircleDollarSign size={19} />}
+              metric={budget?.estimated_total || budget?.metric}
+              label={budget?.metric_label}
+            >
+              {budget?.summary ? (
+                <p className="text-sm leading-6 text-ink-soft">
+                  {budget.summary}
+                </p>
+              ) : null}
+
+              <dl className="mt-4 space-y-2 border-t border-rule pt-3">
+                {(budget?.lines ?? []).slice(0, 5).map((line, index) => (
+                  <div
+                    key={index}
+                    className="flex items-baseline justify-between gap-4 text-xs"
+                  >
+                    <dt>{line.category}</dt>
+                    <dd className="text-right text-ink-soft">
+                      {facts(line.amount, line.notes)}
+                    </dd>
+                  </div>
+                ))}
+
+                {!budget?.lines?.length ? (
+                  <p className="text-sm text-ink-soft">
+                    Budget line items are not available yet.
+                  </p>
+                ) : null}
+              </dl>
+            </Card>
+          </div>
+        </div>
+
+        <div className={SPACER} aria-hidden="true" />
+
+        {/* Itinerary — right */}
+        <div ref={setStop(4)} className="relative z-10 md:ml-[48%]">
+          <div className="js-stop" data-side="1">
+            <Card
+              title="Itinerary"
+              icon={<CalendarDays size={19} />}
+              metric={itinerary?.metric}
+              label={itinerary?.metric_label}
+            >
+              {itinerary?.summary ? (
+                <p className="text-sm leading-6 text-ink-soft">
+                  {itinerary.summary}
+                </p>
+              ) : null}
+
+              <div className="mt-4 space-y-3">
+                {(itinerary?.days ?? []).slice(0, 3).map((day, index) => (
+                  <div
+                    key={`${day.day}-${index}`}
+                    className="border-t border-rule pt-3"
+                  >
+                    <p className="text-sm font-medium">
+                      {facts(day.day, day.title)}
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-ink-soft">
+                      {day.summary}
+                    </p>
+                    {day.stops?.[0] ? (
+                      <p className="mt-1 text-xs text-ink-soft">
+                        {facts(
+                          day.stops[0].time,
+                          day.stops[0].title,
+                          day.stops[0].place,
+                        )}
+                      </p>
+                    ) : null}
+                  </div>
+                ))}
+
+                {!itinerary?.days?.length ? (
+                  <p className="text-sm text-ink-soft">
+                    Day plans are not available yet.
+                  </p>
+                ) : null}
+              </div>
+            </Card>
+          </div>
+        </div>
+
+        <div className={SPACER} aria-hidden="true" />
+
+        {/* Destination — left, like the sketch */}
+        <div ref={setStop(5)} className="relative z-10 md:mr-[48%]">
+          <div className="js-stop" data-side="0">
+            <Endpoint
+              label="Destination"
+              location={trip.destination}
+              icon={<Flag size={19} />}
+            />
+          </div>
+        </div>
+
+        {/* Icon nodes sit on the midpoint of every curve */}
+        {layout?.segs.map((seg, i) => (
+          <div
+            key={i}
+            className="absolute z-20 -translate-x-1/2 -translate-y-1/2"
+            style={{ left: seg.x, top: seg.y }}
+            aria-hidden="true"
+          >
+            <div className="js-node grid size-10 place-items-center rounded-full border border-brass bg-paper text-brass shadow-[0_0_0_5px_var(--paper)]">
+              {connectorIcons[i]}
+            </div>
+          </div>
+        ))}
       </div>
-
-      <Connector side="left" icon={<Route size={15} />} />
-
-      <Endpoint
-        label="Destination"
-        location={trip.destination}
-        icon={<MapPin size={19} />}
-      />
 
       {timelineOpen ? (
         <TimelinePanel
@@ -484,4 +791,3 @@ export function VoyageDocument({
     </article>
   );
 }
-
