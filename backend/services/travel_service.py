@@ -89,6 +89,7 @@ class TravelService:
             "weather_results": result.get("weather_results"),
             "budget_analysis": result.get("budget_analysis"),
             "itinerary": result.get("itinerary"),
+            "trip_document": result.get("trip_document") or {},
             "selected_agents": result.get("selected_agents", []),
             "trip_constraints": result.get("trip_constraints", {}),
             "input_guardrail": result.get("input_guardrail", {}),
@@ -132,6 +133,7 @@ class TravelService:
             "budget_analysis": "",
             "itinerary": "",
             "final_answer": "",
+            "trip_document": {},
             "errors": [],
         }
 

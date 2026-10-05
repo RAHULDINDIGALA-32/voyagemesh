@@ -23,6 +23,131 @@ export type ChatMessage = {
   created_at: string;
 };
 
+export type FlightOption = {
+  airline?: string;
+  flight_number?: string;
+  origin?: string;
+  destination?: string;
+  departs?: string;
+  arrives?: string;
+  duration?: string;
+  cabin?: string;
+  estimate?: string;
+  notes?: string;
+};
+
+export type FlightCard = {
+  headline?: string;
+  summary?: string;
+  metric?: string;
+  metric_label?: string;
+  options?: FlightOption[];
+  notes?: string[];
+};
+
+export type HotelOption = {
+  name?: string;
+  area?: string;
+  nights?: string;
+  style?: string;
+  estimate_per_night?: string;
+  why?: string;
+  source?: string;
+};
+
+export type HotelCard = {
+  headline?: string;
+  summary?: string;
+  metric?: string;
+  metric_label?: string;
+  options?: HotelOption[];
+  notes?: string[];
+};
+
+export type BudgetLine = {
+  category: string;
+  amount?: string;
+  notes?: string;
+};
+
+export type BudgetCard = {
+  headline?: string;
+  summary?: string;
+  metric?: string;
+  metric_label?: string;
+  estimated_total?: string;
+  currency?: string;
+  lines?: BudgetLine[];
+  exclusions?: string[];
+  assumptions?: string[];
+};
+
+export type ItineraryStop = {
+  time?: string;
+  title?: string;
+  detail?: string;
+  place?: string;
+};
+
+export type ItineraryDay = {
+  day?: string;
+  title?: string;
+  summary?: string;
+  stops?: ItineraryStop[];
+};
+
+export type ItineraryCard = {
+  headline?: string;
+  summary?: string;
+  metric?: string;
+  metric_label?: string;
+  days?: ItineraryDay[];
+  highlights?: string[];
+};
+
+export type WeatherCard = {
+  headline?: string;
+  summary?: string;
+  metric?: string;
+  metric_label?: string;
+  packing_hints?: string[];
+};
+
+export type PackingItem = {
+  item: string;
+  reason?: string;
+  category?: string;
+};
+
+export type TimelineEvent = {
+  when?: string;
+  title: string;
+  detail?: string;
+  kind?: string;
+};
+
+export type TripTimeline = {
+  summary?: string;
+  events?: TimelineEvent[];
+};
+
+export type TripDocument = {
+  origin?: string;
+  destination?: string;
+  dates?: string;
+  travelers?: string;
+  trip_summary?: string;
+  chat_message?: string;
+  flights?: FlightCard;
+  hotels?: HotelCard;
+  budget?: BudgetCard;
+  itinerary?: ItineraryCard;
+  weather?: WeatherCard;
+  packing?: { summary?: string; items?: PackingItem[] };
+  timeline?: TripTimeline;
+  assumptions?: string[];
+};
+
 export type TripPayload = {
   request_id: string;
   thread_id: string;
@@ -33,6 +158,7 @@ export type TripPayload = {
   weather_results?: string | null;
   budget_analysis?: string | null;
   itinerary?: string | null;
+  trip_document?: TripDocument | null;
   selected_agents?: string[];
   trip_constraints?: Record<string, string>;
   input_guardrail?: Record<string, string | boolean>;

@@ -9,6 +9,7 @@ from agents.budget import budget_agent as run_budget
 from agents.supervisor import supervisor_agent as run_supervisor
 from guardrails.input import validate_input
 from guardrails.output import validate_output
+from agents.structured import itinerary_preview
 from hitl.contracts import (
     budget_conflict,
     create_intervention,
@@ -140,7 +141,7 @@ async def final_review_gate(state: dict) -> dict:
         "destination": state.get("trip_constraints", {}).get("destination", ""),
         "travel_dates": state.get("trip_constraints", {}).get("travel_dates", ""),
         "budget_analysis": state.get("budget_analysis", "")[:1_500],
-        "itinerary_preview": itinerary[:3_000],
+        "itinerary_preview": itinerary_preview(itinerary),
     }
     return {
         "hitl_version": version,

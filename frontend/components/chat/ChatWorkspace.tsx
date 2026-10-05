@@ -7,6 +7,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { CompassMark } from "@/components/brand/CompassMark";
 import { Composer } from "@/components/chat/Composer";
 import { HitlCard } from "@/components/chat/HitlCard";
+import { RichText } from "@/components/ui/RichText";
 import { asTripPayload, streamFollowUp, streamTrip } from "@/lib/api/sse";
 import { getConversation, getTrip } from "@/lib/api/trips";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
@@ -171,8 +172,8 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
             </p>
           </div>
           {payload.thread_id ? (
-            <Link href={`/app/trips/${payload.thread_id}`} className="text-xs text-steel">
-              Open voyage document
+            <Link href={`/app/trips/${payload.thread_id}`} className="rounded-lg border border-brass/50 bg-paper-raised px-3 py-2 text-xs font-medium text-steel transition hover:border-brass hover:bg-paper">
+              View trip plan <span aria-hidden="true">→</span>
             </Link>
           ) : null}
         </div>
@@ -202,8 +203,13 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
                     </p>
                   </div>
                 ) : (
-                  <div key={message.id} className="mb-6 max-w-[86%] whitespace-pre-wrap text-sm leading-7">
-                    {message.content}
+                  <div key={message.id} className="mb-6 max-w-[86%] text-sm leading-7">
+                    <RichText text={message.content} />
+                    {message.id === messages[messages.length - 1]?.id && payload?.thread_id && message.kind === "assistant" ? (
+                      <Link href={`/app/trips/${payload.thread_id}`} className="mt-3 inline-flex items-center gap-1 rounded-lg border border-brass/50 bg-paper-raised px-3 py-2 text-xs font-medium text-steel hover:border-brass">
+                        Open trip plan <span aria-hidden="true">→</span>
+                      </Link>
+                    ) : null}
                   </div>
                 ),
               )}

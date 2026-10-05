@@ -75,6 +75,7 @@ class SupervisorWorkflowTests(unittest.IsolatedAsyncioTestCase):
             "budget_analysis": "",
             "itinerary": "",
             "final_answer": "",
+            "trip_document": {},
             "errors": [],
         }
         config = {"configurable": {"thread_id": "test-v3-workflow"}}
@@ -102,9 +103,11 @@ class SupervisorWorkflowTests(unittest.IsolatedAsyncioTestCase):
             result["completed_agents"],
             ["hotel_agent", "budget_agent", "itinerary_agent"],
         )
-        self.assertEqual(result["hotel_results"], "Hotel evidence")
-        self.assertEqual(result["budget_analysis"], "Generated planning content")
-        self.assertEqual(snapshot.values["final_answer"], "Generated planning content")
+        self.assertIn("Hotel evidence", result["hotel_results"])
+        self.assertIn("Generated planning content", result["budget_analysis"])
+        self.assertTrue(snapshot.values["final_answer"])
+        self.assertIn("trip_document", snapshot.values)
+        self.assertTrue(snapshot.values["trip_document"].get("chat_message"))
         self.assertEqual(snapshot.values["input_guardrail"]["source"], "model")
         self.assertEqual(snapshot.values["output_validation"]["source"], "model")
 
@@ -155,6 +158,7 @@ class SupervisorWorkflowTests(unittest.IsolatedAsyncioTestCase):
             "budget_analysis": "",
             "itinerary": "",
             "final_answer": "",
+            "trip_document": {},
             "errors": [],
         }
         graph = build_graph(MemorySaver())

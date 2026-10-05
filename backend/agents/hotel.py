@@ -1,5 +1,16 @@
-
+from agents.structured import dump_card, hotel_card_from
 from mcp_integrations.agent_runner import run_mcp_agent
+
+HOTEL_JSON = (
+    "After using tools, return ONLY JSON with this shape: "
+    '{"headline":"Stay in Gion","summary":"one or two sentences",'
+    '"metric":"4 nights","metric_label":"recommended stay",'
+    '"options":[{"name":"","area":"","nights":"","style":"","estimate_per_night":"",'
+    '"why":"why this fits","source":"url if present"}],'
+    '"notes":["availability is not confirmed"]}. '
+    "Include at most 3 options. Search results are research only; never assert current "
+    "availability, live prices, or bookings."
+)
 
 
 async def hotel_agent(state: dict) -> dict:
@@ -8,11 +19,14 @@ async def hotel_agent(state: dict) -> dict:
             server_name="tavily",
             system_prompt=(
                 "You are VoyageMesh's hotel research agent. Use Tavily MCP search to find "
-                "accommodation options and cite returned source URLs. Search results are "
-                "research only; never assert current availability, prices, or bookings."
+                "accommodation options and cite returned source URLs. "
+                + HOTEL_JSON
             ),
             request=f"Find accommodation research for: {state['user_query']}",
         )
-        return {"hotel_results": results}
+        return {"hotel_results": dump_card(hotel_card_from(results))}
     except Exception as exc:
-        return {"hotel_results": "Hotel research is currently unavailable.", "errors": [f"hotel_mcp: {type(exc).__name__}"]}
+        return {
+            "hotel_results": dump_card(hotel_card_from("Hotel research is currently unavailable.")),
+            "errors": [f"hotel_mcp: {type(exc).__name__}"],
+        }

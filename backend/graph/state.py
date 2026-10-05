@@ -31,6 +31,7 @@ class TravelState(TypedDict, total=False):
     # LLM Outputs
     itinerary: str
     final_answer: str
+    trip_document: dict
 
     # Operational Status
     errors: Annotated[list[str], add]
