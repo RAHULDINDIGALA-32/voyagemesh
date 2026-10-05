@@ -21,14 +21,25 @@ async def flight_agent(state: dict) -> dict:
                 "You are VoyageMesh's flight research agent. Use AviationStack MCP "
                 "tools to research routes, schedules, and live flight status relevant "
                 "to the request. Never claim ticket prices or booking availability: "
-                "AviationStack does not provide fares. State when route/date details are missing. "
+                "AviationStack does not provide fares. The request may not include "
+                "travel dates; do not ask for them. Look up the origin airport (HYD) "
+                "and at most 1-2 likely destination airports, then answer with what "
+                "the tools returned, and say that dates and fares are missing. "
                 + FLIGHT_JSON
             ),
-            request=state["user_query"],
+            request=f"""
+User Query:
+{state["user_query"]}
+
+Trip Constraints:
+{state["trip_constraints"]}
+""",
         )
         return {"flight_results": dump_card(flight_card_from(flight_results))}
     except Exception as exc:
         return {
-            "flight_results": dump_card(flight_card_from("Flight research is currently unavailable.")),
+            "flight_results": dump_card(
+                flight_card_from("Flight research is currently unavailable.")
+            ),
             "errors": [f"flight_mcp: {type(exc).__name__}"],
         }

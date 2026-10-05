@@ -18,15 +18,26 @@ async def hotel_agent(state: dict) -> dict:
         results = await run_mcp_agent(
             server_name="tavily",
             system_prompt=(
-                "You are VoyageMesh's hotel research agent. Use Tavily MCP search to find "
-                "accommodation options and cite returned source URLs. "
-                + HOTEL_JSON
+                "You are VoyageMesh's hotel research agent. Use the Tavily search tool to find "
+                "accommodation options and cite returned source URLs. Make ONE search call with "
+                "max_results=3 and no raw page content, then answer. " + HOTEL_JSON
             ),
-            request=f"Find accommodation research for: {state['user_query']}",
+            request=f"""Find accommodation research for:
+User Query:
+{state["user_query"]}
+
+Trip Constraints:
+{state.get("trip_constraints") or "None provided"}
+""",
+            tool_names=("search",),
+            max_rounds=2,
         )
         return {"hotel_results": dump_card(hotel_card_from(results))}
     except Exception as exc:
+        print("error: ", exc)
         return {
-            "hotel_results": dump_card(hotel_card_from("Hotel research is currently unavailable.")),
+            "hotel_results": dump_card(
+                hotel_card_from("Hotel research is currently unavailable.")
+            ),
             "errors": [f"hotel_mcp: {type(exc).__name__}"],
         }
