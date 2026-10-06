@@ -161,6 +161,14 @@ export function HitlCard({
 
       {intervention.type === "itinerary_review" ? (
         <div className="mt-4 space-y-3">
+          {payload.weather_details?.summary || current.context?.weather_preview ? (
+            <p className="text-xs leading-5 text-ink-soft">
+              {payload.weather_details?.headline || "Weather"}
+              {payload.weather_details?.metric ? ` · ${payload.weather_details.metric}` : ""}
+              {" — "}
+              {payload.weather_details?.summary || current.context?.weather_preview}
+            </p>
+          ) : null}
           <div className="flex flex-wrap gap-2">
             <Button
               type="button"

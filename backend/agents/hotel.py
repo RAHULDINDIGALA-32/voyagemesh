@@ -1,5 +1,9 @@
+import logging
+
 from agents.structured import dump_card, hotel_card_from
 from mcp_integrations.agent_runner import run_mcp_agent
+
+log = logging.getLogger(__name__)
 
 HOTEL_JSON = (
     "After using tools, return ONLY JSON with this shape: "
@@ -34,7 +38,7 @@ Trip Constraints:
         )
         return {"hotel_results": dump_card(hotel_card_from(results))}
     except Exception as exc:
-        print("error: ", exc)
+        log.exception("hotel_agent failed")
         return {
             "hotel_results": dump_card(
                 hotel_card_from("Hotel research is currently unavailable.")

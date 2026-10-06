@@ -30,6 +30,10 @@ function VoyagePdf({ trip }: { trip: TripDocument }) {
     {(trip.flights?.options ?? []).map((option, index) => <Text key={index} style={styles.p}>{join(option.airline, option.flight_number, option.origin && option.destination ? `${option.origin} → ${option.destination}` : undefined, option.departs, option.arrives, option.duration, option.estimate, option.notes)}</Text>)}
     <Text style={styles.h}>Stays</Text><Text style={styles.p}>{trip.hotels?.summary || "No accommodation research available."}</Text>
     {(trip.hotels?.options ?? []).map((option, index) => <Text key={index} style={styles.p}>{join(option.name, option.area, option.nights, option.style, option.estimate_per_night, option.why)}</Text>)}
+    <Text style={styles.h}>Weather</Text>
+    <Text style={styles.p}>{join(trip.weather?.headline, trip.weather?.metric, trip.weather?.metric_label) || "No weather research available."}</Text>
+    {trip.weather?.summary ? <Text style={styles.p}>{trip.weather.summary}</Text> : null}
+    {(trip.weather?.packing_hints ?? []).map((hint, index) => <Text key={`w-${index}`} style={styles.p}>{hint}</Text>)}
     <Text style={styles.h}>Budget</Text><Text style={styles.p}>{trip.budget?.summary || "No budget analysis available."}</Text>
     {(trip.budget?.lines ?? []).map((line, index) => <Text key={index} style={styles.p}>{join(line.category, line.amount, line.notes)}</Text>)}
     <Text style={styles.h}>Packing checklist</Text>

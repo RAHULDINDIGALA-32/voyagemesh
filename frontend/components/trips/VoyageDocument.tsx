@@ -14,6 +14,7 @@ import {
   BedDouble,
   CalendarDays,
   CircleDollarSign,
+  CloudSun,
   Flag,
   MapPin,
   Plane,
@@ -331,11 +332,12 @@ export function VoyageDocument({
 
   const flight = trip.flights;
   const hotel = trip.hotels;
+  const weather = trip.weather;
   const budget = trip.budget;
   const itinerary = trip.itinerary;
 
   const routeRef = useRef<HTMLDivElement>(null);
-  // 0 source · 1 flight · 2 hotels · 3 budget · 4 itinerary · 5 destination
+  // 0 source · 1 flight · 2 hotels · 3 weather · 4 budget · 5 itinerary · 6 destination
   const stopRefs = useRef<Array<HTMLDivElement | null>>([]);
 
   const setStop = (index: number) => (el: HTMLDivElement | null) => {
@@ -346,6 +348,7 @@ export function VoyageDocument({
   const connectorIcons = [
     <Plane key="plane" size={16} />,
     <BedDouble key="bed" size={16} />,
+    <CloudSun key="weather" size={16} />,
     <CircleDollarSign key="budget" size={16} />,
     <CalendarDays key="itinerary" size={16} />,
     <Route key="route" size={16} />,
@@ -688,8 +691,39 @@ export function VoyageDocument({
 
         <div className={SPACER} aria-hidden="true" />
 
-        {/* Budget — left */}
+        {/* Weather — left */}
         <div ref={setStop(3)} className="relative z-10 md:mr-[48%]">
+          <div className="js-stop" data-side="-1">
+            <Card
+              title={weather?.headline || "Weather"}
+              icon={<CloudSun size={19} />}
+              metric={weather?.metric}
+              label={weather?.metric_label}
+            >
+              {weather?.summary ? (
+                <p className="text-sm leading-6 text-ink-soft">
+                  {weather.summary}
+                </p>
+              ) : (
+                <p className="text-sm text-ink-soft">
+                  Destination weather is not available yet.
+                </p>
+              )}
+              {weather?.packing_hints?.length ? (
+                <ul className="mt-4 list-disc space-y-1 border-t border-rule pt-3 pl-5 text-sm text-ink-soft">
+                  {weather.packing_hints.map((hint, index) => (
+                    <li key={`${hint}-${index}`}>{hint}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </Card>
+          </div>
+        </div>
+
+        <div className={SPACER} aria-hidden="true" />
+
+        {/* Budget — right */}
+        <div ref={setStop(4)} className="relative z-10 md:ml-[48%]">
           <div className="js-stop" data-side="-1">
             <Card
               title="Budget"
@@ -728,8 +762,8 @@ export function VoyageDocument({
 
         <div className={SPACER} aria-hidden="true" />
 
-        {/* Itinerary — right */}
-        <div ref={setStop(4)} className={`relative z-10 ${expanded ? "" : "md:ml-[48%]"}`}>
+        {/* Itinerary — left */}
+        <div ref={setStop(5)} className={`relative z-10 ${expanded ? "" : "md:mr-[48%]"}`}>
           <div className="js-stop" data-side={expanded ? 0 : 1}>
             <Card
               title="Itinerary"
@@ -783,8 +817,8 @@ export function VoyageDocument({
 
         <div className={SPACER} aria-hidden="true" />
 
-        {/* Destination — left, like the sketch */}
-        <div ref={setStop(5)} className="relative z-10 md:mr-[48%]">
+        {/* Destination — right */}
+        <div ref={setStop(6)} className="relative z-10 md:ml-[48%]">
           <div className="js-stop" data-side="0">
             <Endpoint
               label="Destination"

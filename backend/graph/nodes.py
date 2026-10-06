@@ -9,7 +9,7 @@ from agents.budget import budget_agent as run_budget
 from agents.supervisor import supervisor_agent as run_supervisor
 from guardrails.input import validate_input
 from guardrails.output import validate_output
-from agents.structured import itinerary_preview
+from agents.structured import itinerary_preview, weather_card_from
 from hitl.contracts import (
     budget_conflict,
     create_intervention,
@@ -137,10 +137,14 @@ async def final_review_gate(state: dict) -> dict:
         return {}
     version = state.get("hitl_version", 0) + 1
     itinerary_version = state.get("itinerary_version", 0) + 1
+    weather = weather_card_from(state.get("weather_results", ""))
     context = {
         "destination": state.get("trip_constraints", {}).get("destination", ""),
         "travel_dates": state.get("trip_constraints", {}).get("travel_dates", ""),
         "budget_analysis": state.get("budget_analysis", "")[:1_500],
+        "weather_preview": " · ".join(
+            part for part in (weather.headline, weather.metric, weather.summary) if part
+        )[:500],
         "itinerary_preview": itinerary_preview(itinerary),
     }
     return {

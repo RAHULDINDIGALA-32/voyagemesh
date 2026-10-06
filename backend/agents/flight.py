@@ -2,7 +2,7 @@ from agents.structured import dump_card, flight_card_from
 from mcp_integrations.agent_runner import run_mcp_agent
 
 FLIGHT_JSON = (
-    "After using tools, return ONLY JSON with this shape: "
+    "After using tools, return ONLY JSON with this format: "
     '{"headline":"HYD → KIX","summary":"one or two sentences a traveler needs",'
     '"metric":"8h 40m","metric_label":"typical block time",'
     '"options":[{"airline":"","flight_number":"","origin":"","destination":"",'

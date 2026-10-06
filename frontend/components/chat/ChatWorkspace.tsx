@@ -11,6 +11,7 @@ import { RichText } from "@/components/ui/RichText";
 import { asTripPayload, streamFollowUp, streamTrip } from "@/lib/api/sse";
 import { getConversation, getTrip } from "@/lib/api/trips";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
+import { asTripDocument } from "@/lib/plan/parse";
 import { pickGreeting } from "@/lib/studio/greetings";
 import type { ChatMessage, TripPayload } from "@/types/trip";
 
@@ -61,6 +62,10 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
   }, [conversation.data?.messages, localMessages]);
 
   const payload = livePayload ?? trip.data ?? null;
+  const document = payload ? asTripDocument(payload) : null;
+  const weatherLine = [document?.weather?.metric, document?.weather?.summary]
+    .filter((part) => part?.trim())
+    .join(" · ");
   const interventionPending = payload?.human_intervention?.status === "pending";
   const greeting = useMemo(() => pickGreeting(fullName), [fullName]);
   const isFresh = !conversationId && messages.length === 0 && !busy;
@@ -169,6 +174,7 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
             <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-soft">
               {payload.trip_constraints?.destination || "Unplotted"} ·{" "}
               {payload.trip_constraints?.travel_dates || "dates open"}
+              {weatherLine ? ` · ${weatherLine}` : ""}
             </p>
           </div>
           {payload.thread_id ? (
