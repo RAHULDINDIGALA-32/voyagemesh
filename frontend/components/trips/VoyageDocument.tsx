@@ -608,7 +608,7 @@ export function VoyageDocument({
               ) : null}
 
               <div className="mt-4 space-y-3">
-                {(flight?.options ?? []).slice(0, 2).map((option, index) => (
+                {(flight?.options ?? []).map((option, index) => (
                   <div key={index} className="border-t border-rule pt-3">
                     <p className="text-sm font-medium">
                       {facts(option.airline, option.flight_number) ||
@@ -658,7 +658,7 @@ export function VoyageDocument({
               ) : null}
 
               <div className="mt-4 space-y-3">
-                {(hotel?.options ?? []).slice(0, 2).map((option, index) => (
+                {(hotel?.options ?? []).map((option, index) => (
                   <div key={index} className="border-t border-rule pt-3">
                     <p className="text-sm font-medium">
                       {option.name || "Stay option"}
@@ -738,7 +738,7 @@ export function VoyageDocument({
               ) : null}
 
               <dl className="mt-4 space-y-2 border-t border-rule pt-3">
-                {(budget?.lines ?? []).slice(0, 5).map((line, index) => (
+                {(budget?.lines ?? []).map((line, index) => (
                   <div
                     key={index}
                     className="flex items-baseline justify-between gap-4 text-xs"

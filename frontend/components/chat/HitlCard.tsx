@@ -50,12 +50,17 @@ export function HitlCard({
     setPending(true);
     setError(null);
     try {
-      const next = await respondToIntervention(token, payload.thread_id, {
-        intervention_id: current.intervention_id,
-        expected_version: current.version,
-        action,
-        data,
-      });
+      const next = await respondToIntervention(
+        token,
+        payload.thread_id,
+        {
+          intervention_id: current.intervention_id,
+          expected_version: current.version,
+          action,
+          data,
+        },
+        payload.workflow_token,
+      );
       onResolved(next);
     } catch (caught) {
       const status = (caught as Error & { status?: number }).status;

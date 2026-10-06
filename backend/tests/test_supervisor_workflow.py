@@ -16,6 +16,7 @@ from hitl.contracts import (
     missing_constraints,
     validate_human_response,
 )
+from services.travel_service import TravelService
 
 
 class FakeLlm:
@@ -24,6 +25,46 @@ class FakeLlm:
 
     async def ainvoke(self, *_args, **_kwargs):
         return SimpleNamespace(content=self.content)
+
+
+class FakeTripProduct:
+    async def create_owned_thread(self, **_kwargs):
+        return {
+            "conversation_id": "conversation_1",
+            "trip_id": "trip_1",
+            "title": "Tokyo · Test dates",
+        }
+
+    async def require_thread(self, thread_id, user_id):
+        return {
+            "conversation_id": "conversation_1",
+            "trip_id": "trip_1",
+            "thread_id": thread_id,
+            "title": "Tokyo · Test dates",
+            "latest_payload": {},
+        }
+
+    async def sync_from_payload(self, **_kwargs):
+        return None
+
+
+class FakeTripGraph:
+    async def astream(self, *_args, **_kwargs):
+        yield {"supervisor_agent": None}
+
+    async def aget_state(self, *_args, **_kwargs):
+        return SimpleNamespace(
+            values={
+                "request_id": "request_1",
+                "execution_status": "awaiting_human",
+                "human_intervention": {},
+                "trip_constraints": {
+                    "destination": "Tokyo",
+                    "travel_dates": "2026-12-10/2026-12-14",
+                },
+                "trip_document": {},
+            }
+        )
 
 
 class SupervisorWorkflowTests(unittest.IsolatedAsyncioTestCase):
@@ -38,6 +79,33 @@ class SupervisorWorkflowTests(unittest.IsolatedAsyncioTestCase):
                 {"selected_agents": plan.selected_agents, "completed_agents": []}
             ),
             "hotel_agent",
+        )
+
+    async def test_initial_stream_returns_workflow_token_for_hitl_resume(self):
+        service = TravelService()
+        service.database = SimpleNamespace(
+            product_repository=FakeTripProduct(),
+            hitl_repository=SimpleNamespace(
+                ensure_pending=AsyncMock(),
+            ),
+        )
+        service.graph = FakeTripGraph()
+
+        events = [
+            event
+            async for event in service.stream_trip(
+                "Plan a trip to Tokyo",
+                "user_1",
+            )
+        ]
+
+        self.assertEqual(events[0]["event"], "started")
+        self.assertTrue(events[0]["data"]["workflow_token"])
+        terminal = events[-1]
+        self.assertEqual(terminal["event"], "awaiting_human")
+        self.assertEqual(
+            terminal["data"]["workflow_token"],
+            events[0]["data"]["workflow_token"],
         )
 
     async def test_async_dynamic_workflow_persists_state(self):
@@ -84,7 +152,10 @@ class SupervisorWorkflowTests(unittest.IsolatedAsyncioTestCase):
             patch("agents.supervisor.get_llm", return_value=supervisor_llm),
             patch("guardrails.input.get_llm", return_value=allowed_guardrail_llm),
             patch("guardrails.output.get_llm", return_value=allowed_guardrail_llm),
-            patch("agents.hotel.run_mcp_agent", new=AsyncMock(return_value="Hotel evidence")),
+            patch(
+                "agents.hotel.run_mcp_agent",
+                new=AsyncMock(return_value="Hotel evidence"),
+            ),
             patch("agents.budget.get_llm", return_value=specialist_llm),
             patch("agents.itinerary.get_llm", return_value=specialist_llm),
             patch("agents.final.get_llm", return_value=specialist_llm),
@@ -92,8 +163,12 @@ class SupervisorWorkflowTests(unittest.IsolatedAsyncioTestCase):
             graph = build_graph(MemorySaver())
             await graph.ainvoke(state, config=config)
             paused_snapshot = await graph.aget_state(config)
-            self.assertEqual(paused_snapshot.values["execution_status"], "awaiting_human")
-            self.assertEqual(paused_snapshot.values["human_intervention"]["type"], "itinerary_review")
+            self.assertEqual(
+                paused_snapshot.values["execution_status"], "awaiting_human"
+            )
+            self.assertEqual(
+                paused_snapshot.values["human_intervention"]["type"], "itinerary_review"
+            )
             result = await graph.ainvoke(
                 Command(resume={"action": "accept", "data": {}}), config=config
             )

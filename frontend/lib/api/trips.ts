@@ -35,7 +35,7 @@ export function getTrip(token: string, threadId: string) {
 }
 
 export function respondToIntervention(
-  token: string,
+  accessToken: string,
   threadId: string,
   payload: {
     intervention_id: string;
@@ -43,13 +43,18 @@ export function respondToIntervention(
     action: string;
     data?: Record<string, string>;
   },
+  workflowToken?: string | null,
 ) {
-  const workflowToken = readWorkflowToken(threadId);
-  if (!workflowToken) {
+  const activeWorkflowToken = workflowToken ?? readWorkflowToken(threadId);
+  if (!activeWorkflowToken) {
     throw new Error("This session no longer holds the workflow token. Start a new voyage.");
   }
-  return apiFetch<TripPayload>(`/api/v1/trips/${threadId}/interventions`, token, {
+  return apiFetch<TripPayload>(`/api/v1/trips/${threadId}/interventions`, accessToken, {
     method: "POST",
-    body: JSON.stringify({ ...payload, data: payload.data ?? {}, workflow_token: workflowToken }),
+    body: JSON.stringify({
+      ...payload,
+      data: payload.data ?? {},
+      workflow_token: activeWorkflowToken,
+    }),
   });
 }

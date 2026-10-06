@@ -11,7 +11,6 @@ import { RichText } from "@/components/ui/RichText";
 import { asTripPayload, streamFollowUp, streamTrip } from "@/lib/api/sse";
 import { getConversation, getTrip } from "@/lib/api/trips";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
-import { asTripDocument } from "@/lib/plan/parse";
 import { pickGreeting } from "@/lib/studio/greetings";
 import type { ChatMessage, TripPayload } from "@/types/trip";
 
@@ -62,10 +61,10 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
   }, [conversation.data?.messages, localMessages]);
 
   const payload = livePayload ?? trip.data ?? null;
-  const document = payload ? asTripDocument(payload) : null;
-  const weatherLine = [document?.weather?.metric, document?.weather?.summary]
-    .filter((part) => part?.trim())
-    .join(" · ");
+  //const document = payload ? asTripDocument(payload) : null;
+  //const weatherLine = [document?.weather?.metric, document?.weather?.summary]
+    //.filter((part) => part?.trim())
+    //.join(" · ");
   const interventionPending = payload?.human_intervention?.status === "pending";
   const greeting = useMemo(() => pickGreeting(fullName), [fullName]);
   const isFresh = !conversationId && messages.length === 0 && !busy;
@@ -90,20 +89,18 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
         created_at: new Date().toISOString(),
       },
     ]);
+    let createdConversationId: string | undefined;
 
     try {
-      const handle = async (event: { event: string; data: Record<string, unknown> }) => {
-        if (event.event === "started") {
-          const nextId = event.data.conversation_id;
-          if (!conversationId && typeof nextId === "string") {
-            router.replace(`/app/c/${nextId}`);
-          }
-        }
+      const handle = (event: { event: string; data: Record<string, unknown> }) => {
         if (event.event === "progress" && typeof event.data.node === "string") {
           setProgress((current) => [...current, event.data.node as string]);
         }
         if (event.event === "completed" || event.event === "awaiting_human") {
           const next = asTripPayload(event.data);
+          if (!conversationId && typeof next.conversation_id === "string") {
+            createdConversationId = next.conversation_id;
+          }
           setLivePayload(next);
           if (next.answer) {
             setLocalMessages((current) => [
@@ -145,6 +142,9 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
       await queryClient.invalidateQueries({ queryKey: ["conversation"] });
       await queryClient.invalidateQueries({ queryKey: ["trip"] });
       await queryClient.invalidateQueries({ queryKey: ["trips"] });
+      if (createdConversationId) {
+        router.replace(`/app/c/${createdConversationId}`);
+      }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to dispatch");
     } finally {
@@ -173,8 +173,7 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
             </p>
             <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-soft">
               {payload.trip_constraints?.destination || "Unplotted"} ·{" "}
-              {payload.trip_constraints?.travel_dates || "dates open"}
-              {weatherLine ? ` · ${weatherLine}` : ""}
+              {payload.trip_constraints?.travel_dates || "Open Dates"}
             </p>
           </div>
           {payload.thread_id ? (

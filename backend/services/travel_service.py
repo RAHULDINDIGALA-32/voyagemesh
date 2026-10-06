@@ -8,6 +8,13 @@ from langgraph.graph.state import CompiledStateGraph
 
 from graph.workflow import build_graph
 from hitl.contracts import HumanResponseRequest, validate_human_response
+from agents.structured import (
+    budget_card_from,
+    flight_card_from,
+    hotel_card_from,
+    itinerary_card_from,
+    weather_card_from,
+)
 from infrastructure.database import Database
 from infrastructure.product_repository import ProductRepository
 from langgraph.types import Command
@@ -38,7 +45,9 @@ class TravelService:
     def _assistant_copy(self, result: dict) -> str:
         intervention = result.get("human_intervention") or {}
         if result.get("status") == "awaiting_human":
-            return str(intervention.get("question") or "I need a decision before I continue.")
+            return str(
+                intervention.get("question") or "I need a decision before I continue."
+            )
         if result.get("status") == "blocked":
             return str(result.get("answer") or "I can't process that request.")
         return str(result.get("answer") or result.get("itinerary") or "Plan updated.")
@@ -83,6 +92,25 @@ class TravelService:
         if not isinstance(document, dict):
             document = {}
 
+        # A workflow can pause at a review gate before final_agent runs. Keep the
+        # trip page useful in that state by exposing the structured specialist
+        # cards that already exist, rather than returning an empty document.
+        flight_details = result.get("flight_details") or document.get("flights")
+        hotel_details = result.get("hotel_details") or document.get("hotels")
+        weather_details = result.get("weather_details") or document.get("weather")
+        budget_details = result.get("budget_details") or document.get("budget")
+        itinerary_details = result.get("itinerary_details") or document.get("itinerary")
+        if not flight_details and result.get("flight_results"):
+            flight_details = flight_card_from(str(result["flight_results"])).model_dump()
+        if not hotel_details and result.get("hotel_results"):
+            hotel_details = hotel_card_from(str(result["hotel_results"])).model_dump()
+        if not weather_details and result.get("weather_results"):
+            weather_details = weather_card_from(str(result["weather_results"])).model_dump()
+        if not budget_details and result.get("budget_analysis"):
+            budget_details = budget_card_from(str(result["budget_analysis"])).model_dump()
+        if not itinerary_details and result.get("itinerary"):
+            itinerary_details = itinerary_card_from(str(result["itinerary"])).model_dump()
+
         # `trip_document` remains the complete portable document. These named
         # fields are the stable API contract for clients that render one trip
         # area at a time, rather than parsing LLM text or JSON strings.
@@ -97,12 +125,14 @@ class TravelService:
             "budget_analysis": result.get("budget_analysis"),
             "itinerary": result.get("itinerary"),
             "trip_document": result.get("trip_document") or {},
-            "trip_summary": result.get("trip_summary") or document.get("trip_summary") or "",
-            "flight_details": result.get("flight_details") or document.get("flights") or {},
-            "hotel_details": result.get("hotel_details") or document.get("hotels") or {},
-            "weather_details": result.get("weather_details") or document.get("weather") or {},
-            "budget_details": result.get("budget_details") or document.get("budget") or {},
-            "itinerary_details": result.get("itinerary_details") or document.get("itinerary") or {},
+            "trip_summary": result.get("trip_summary")
+            or document.get("trip_summary")
+            or "",
+            "flight_details": flight_details or {},
+            "hotel_details": hotel_details or {},
+            "weather_details": weather_details or {},
+            "budget_details": budget_details or {},
+            "itinerary_details": itinerary_details or {},
             "packing_list": result.get("packing_list") or document.get("packing") or {},
             "timeline": result.get("timeline") or document.get("timeline") or {},
             "selected_agents": result.get("selected_agents", []),
@@ -178,9 +208,13 @@ class TravelService:
             request_id=request_id,
         )
 
-        await graph.ainvoke(self._initial_state(query, request_id, token_hash), config=config)
+        await graph.ainvoke(
+            self._initial_state(query, request_id, token_hash), config=config
+        )
         result = await self.get_trip(thread_id, user_id, prefer_persisted=False)
-        await self._sync_pending_intervention(thread_id, await self._get_state_values(thread_id))
+        await self._sync_pending_intervention(
+            thread_id, await self._get_state_values(thread_id)
+        )
         result["workflow_token"] = workflow_token
         result["conversation_id"] = owned["conversation_id"]
         result["trip_id"] = owned["trip_id"]
@@ -232,13 +266,20 @@ class TravelService:
                 }
 
         result = await self.get_trip(thread_id, user_id, prefer_persisted=False)
-        await self._sync_pending_intervention(thread_id, await self._get_state_values(thread_id))
+        await self._sync_pending_intervention(
+            thread_id, await self._get_state_values(thread_id)
+        )
         result["conversation_id"] = owned["conversation_id"]
         result["trip_id"] = owned["trip_id"]
+        result["workflow_token"] = workflow_token
         await self._persist_result(thread_id, user_id, result)
 
         yield {
-            "event": "awaiting_human" if result["status"] == "awaiting_human" else "completed",
+            "event": (
+                "awaiting_human"
+                if result["status"] == "awaiting_human"
+                else "completed"
+            ),
             "data": result,
         }
 
@@ -297,7 +338,9 @@ class TravelService:
         await self._product().require_thread(thread_id, user_id)
         values = await self._get_state_values(thread_id)
         expected_hash = values.get("workflow_token_hash", "")
-        actual_hash = hashlib.sha256(response.workflow_token.encode("utf-8")).hexdigest()
+        actual_hash = hashlib.sha256(
+            response.workflow_token.encode("utf-8")
+        ).hexdigest()
         if not expected_hash or not hmac.compare_digest(expected_hash, actual_hash):
             raise PermissionError("Invalid workflow token")
 
@@ -329,6 +372,9 @@ class TravelService:
         values = await self._get_state_values(thread_id)
         await self._sync_pending_intervention(thread_id, values)
         result = self._format_result(values, values.get("request_id", ""), thread_id)
+        # The token is deliberately excluded from latest_payload, but must be
+        # returned so the client can safely continue through a second HITL gate.
+        result["workflow_token"] = response.workflow_token
         await self._persist_result(thread_id, user_id, result)
         return result
 
@@ -358,12 +404,16 @@ class TravelService:
         request_id = uuid.uuid4().hex
         workflow_token, token_hash = self._new_workflow_token()
         config = self._config(thread_id=thread_id, request_id=request_id)
-        state = self._initial_state(self._revision_query(values, query), request_id, token_hash)
+        state = self._initial_state(
+            self._revision_query(values, query), request_id, token_hash
+        )
         state["trip_constraints"] = values.get("trip_constraints") or {}
         state["user_preferences"] = values.get("user_preferences") or {}
         await graph.ainvoke(state, config=config)
         result = await self.get_trip(thread_id, user_id, prefer_persisted=False)
-        await self._sync_pending_intervention(thread_id, await self._get_state_values(thread_id))
+        await self._sync_pending_intervention(
+            thread_id, await self._get_state_values(thread_id)
+        )
         result["workflow_token"] = workflow_token
         await self._persist_result(thread_id, user_id, result)
         return result
@@ -383,7 +433,9 @@ class TravelService:
         workflow_token, token_hash = self._new_workflow_token()
         graph = self._get_graph()
         config = self._config(thread_id=thread_id, request_id=request_id)
-        state = self._initial_state(self._revision_query(values, query), request_id, token_hash)
+        state = self._initial_state(
+            self._revision_query(values, query), request_id, token_hash
+        )
         state["trip_constraints"] = values.get("trip_constraints") or {}
         state["user_preferences"] = values.get("user_preferences") or {}
 
@@ -406,20 +458,24 @@ class TravelService:
                 }
 
         result = await self.get_trip(thread_id, user_id, prefer_persisted=False)
-        await self._sync_pending_intervention(thread_id, await self._get_state_values(thread_id))
+        await self._sync_pending_intervention(
+            thread_id, await self._get_state_values(thread_id)
+        )
         result["workflow_token"] = workflow_token
         await self._persist_result(thread_id, user_id, result)
         yield {
-            "event": "awaiting_human" if result["status"] == "awaiting_human" else "completed",
+            "event": (
+                "awaiting_human"
+                if result["status"] == "awaiting_human"
+                else "completed"
+            ),
             "data": result,
         }
 
     async def get_trip_state(self, thread_id: str, user_id: str) -> dict:
         await self._product().require_thread(thread_id, user_id)
         graph = self._get_graph()
-        snapshot = await graph.aget_state(
-            {"configurable": {"thread_id": thread_id}}
-        )
+        snapshot = await graph.aget_state({"configurable": {"thread_id": thread_id}})
         if not snapshot.values:
             raise LookupError("Trip not found")
 
