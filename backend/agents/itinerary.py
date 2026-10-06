@@ -1,12 +1,12 @@
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from agents.structured import dump_card, itinerary_card_from
-from llm.client import get_llm
+from llm.client import get_itinerary_llm
 
 
 async def itinerary_agent(state: dict) -> dict:
     try:
-        response = await get_llm().ainvoke(
+        response = await get_itinerary_llm().ainvoke(
             [
                 SystemMessage(
                     content=(
@@ -23,8 +23,7 @@ async def itinerary_agent(state: dict) -> dict:
                         '"stops":[{"time":"Afternoon","title":"Check in","detail":"","place":""}]}]}.'
                     )
                 ),
-                HumanMessage(
-                    content=f"""
+                HumanMessage(content=f"""
 Create a practical travel itinerary.
 
 User request:
@@ -44,13 +43,14 @@ Budget analysis:
 
 User-approved itinerary preferences:
 {state.get('user_preferences', {})}
-"""
-                ),
+"""),
             ]
         )
         return {"itinerary": dump_card(itinerary_card_from(str(response.content)))}
     except Exception as exc:
         return {
-            "itinerary": dump_card(itinerary_card_from("Itinerary generation is currently unavailable.")),
+            "itinerary": dump_card(
+                itinerary_card_from("Itinerary generation is currently unavailable.")
+            ),
             "errors": [f"itinerary_agent: {type(exc).__name__}"],
         }

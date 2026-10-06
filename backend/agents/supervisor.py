@@ -13,7 +13,7 @@ from hitl.constraints import (
     normalize_constraints,
     resolve_constraints,
 )
-from llm.client import get_llm
+from llm.client import get_supervisor_llm
 
 logger = logging.getLogger(__name__)
 
@@ -180,7 +180,7 @@ def _fallback_plan(query: str) -> SupervisorPlan:
 async def supervisor_agent(state: dict) -> dict:
     """Choose only the specialist agents needed for the supplied request."""
     query = state["user_query"]
-    llm = get_llm()
+    llm = get_supervisor_llm()
     messages = [
         SystemMessage(content=SYSTEM_PROMPT),
         HumanMessage(content=f"<request>{query}</request>"),

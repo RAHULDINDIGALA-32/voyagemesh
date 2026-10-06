@@ -16,15 +16,26 @@ async def weather_agent(state: dict) -> dict:
         results = await run_mcp_agent(
             server_name="weather",
             system_prompt=(
-                "You are VoyageMesh's weather agent. Determine the destination from the "
-                "request and use Weather MCP tools for current conditions and/or forecast. "
+                "You are VoyageMesh's weather agent. "
+                "Your job is to resolve the user's destination and weather intent, "
+                "call the appropriate Weather MCP tools, and get the weather results. "
+                "Handle current weather and forecasts based on the requested time range. "
+                "Do not guess weather data or locations. Keep responses concise and useful. "
                 + WEATHER_JSON
             ),
-            request=state["user_query"],
+            request=f"""
+           User Query:
+           {state["user_query"]}
+           
+           Trip Constraints:
+           {state["trip_constraints"]}
+           """,
         )
         return {"weather_results": dump_card(weather_card_from(results))}
     except Exception as exc:
         return {
-            "weather_results": dump_card(weather_card_from("Weather research is currently unavailable.")),
+            "weather_results": dump_card(
+                weather_card_from("Weather research is currently unavailable.")
+            ),
             "errors": [f"weather_mcp: {type(exc).__name__}"],
         }

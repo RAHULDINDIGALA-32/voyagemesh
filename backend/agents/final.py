@@ -12,7 +12,7 @@ from agents.structured import (
     fallback_final,
     parse_model,
 )
-from llm.client import get_llm
+from llm.client import get_final_llm
 
 log = logging.getLogger(__name__)
 
@@ -99,7 +99,7 @@ def _build_messages(state: dict, scale: float = 1.0) -> list:
 
 async def _generate_chart(state: dict) -> FinalChart:
     """One model pass that must yield a valid FinalChart, or raise."""
-    llm = get_llm().bind(max_tokens=MAX_OUTPUT_TOKENS, temperature=0)
+    llm = get_final_llm().bind(max_tokens=MAX_OUTPUT_TOKENS, temperature=0)
 
     last_exc: Exception | None = None
     for scale in (1.0, 0.5):  # on 413, retry once with half the evidence
