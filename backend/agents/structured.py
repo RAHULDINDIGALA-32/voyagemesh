@@ -5,7 +5,7 @@ import re
 from datetime import date
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 
 def content_to_text(content: object) -> str:
@@ -143,10 +143,18 @@ def expected_days(constraints: dict[str, str]) -> int | None:
         )
         if match:
             # Normalize the compact form to the full-form groups.
-            groups = (match.group(1), match.group(3), match.group(2), match.group(3), match.group(4))
+            groups = (
+                match.group(1),
+                match.group(3),
+                match.group(2),
+                match.group(3),
+                match.group(4),
+            )
+
             class _Match:
                 def group(self, index: int):
                     return groups[index - 1]
+
             match = _Match()
     if not match:
         return None
@@ -170,8 +178,20 @@ def expected_days(constraints: dict[str, str]) -> int | None:
 
 def _month_number(value: str) -> int:
     name = value.lower()[:3]
-    months = {"jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
-              "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12}
+    months = {
+        "jan": 1,
+        "feb": 2,
+        "mar": 3,
+        "apr": 4,
+        "may": 5,
+        "jun": 6,
+        "jul": 7,
+        "aug": 8,
+        "sep": 9,
+        "oct": 10,
+        "nov": 11,
+        "dec": 12,
+    }
     return months[name]
 
 
@@ -182,11 +202,46 @@ def itinerary_is_valid(card: ItineraryCard, constraints: dict[str, str]) -> bool
     return all(day.stops or day.summary.strip() for day in card.days)
 
 
-class WeatherCard(BaseModel):
+class _Loose(BaseModel):
+    """Tolerant base: numbers become strings, nulls fall back to defaults."""
+
+    model_config = ConfigDict(coerce_numbers_to_str=True, extra="ignore")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_nulls(cls, data):
+        if isinstance(data, dict):
+            return {k: v for k, v in data.items() if v is not None}
+        return data
+
+
+class WeatherDay(_Loose):
+    date: str = ""  # "Mon 12", "Day 1"
+    condition: str = ""  # "Light rain"
+    high: str = ""  # "31" or "31°C"
+    low: str = ""
+    precip_chance: str = ""  # "40%"
+
+
+class WeatherCard(_Loose):
     headline: str = "Weather"
-    summary: str = ""
-    metric: str = ""
+    summary: str = ""  # ONE short sentence, not a data dump
+    metric: str = ""  # kept for backwards compatibility
     metric_label: str = "conditions"
+
+    condition: str = ""  # "Partly cloudy"
+    season: str = ""  # "Monsoon", "Dry season"
+    temp_high: str = ""
+    temp_low: str = ""
+    temp_unit: str = ""  # "C" or "F"
+    feels_like: str = ""
+    humidity: str = ""  # "65%"
+    wind: str = ""  # "12 km/h NW"
+    precip_chance: str = ""  # "40%"
+    uv_index: str = ""  # "7"
+
+    forecast: list[WeatherDay] = Field(default_factory=list)
+    alerts: list[str] = Field(default_factory=list)
     packing_hints: list[str] = Field(default_factory=list)
 
 
@@ -205,7 +260,9 @@ class TimelineEvent(BaseModel):
     when: str = ""
     title: str
     detail: str = ""
-    kind: Literal["origin", "flight", "hotel", "activity", "budget", "return", "destination"] = "activity"
+    kind: Literal[
+        "origin", "flight", "hotel", "activity", "budget", "return", "destination"
+    ] = "activity"
 
 
 class TripTimeline(BaseModel):
@@ -256,14 +313,19 @@ def flight_card_from(raw: str) -> FlightCard:
     parsed = parse_model(FlightCard, raw)
     if parsed:
         return parsed  # type: ignore[return-value]
-    return FlightCard(headline="Flights", summary=clip(raw) if raw else "Flight research is still thin.")
+    return FlightCard(
+        headline="Flights",
+        summary=clip(raw) if raw else "Flight research is still thin.",
+    )
 
 
 def hotel_card_from(raw: str) -> HotelCard:
     parsed = parse_model(HotelCard, raw)
     if parsed:
         return parsed  # type: ignore[return-value]
-    return HotelCard(headline="Hotels", summary=clip(raw) if raw else "Stay research is still thin.")
+    return HotelCard(
+        headline="Hotels", summary=clip(raw) if raw else "Stay research is still thin."
+    )
 
 
 def budget_card_from(raw: str) -> BudgetCard:
@@ -286,14 +348,18 @@ def itinerary_card_from(raw: str) -> ItineraryCard:
     parsed = parse_model(ItineraryCard, raw)
     if parsed:
         return parsed  # type: ignore[return-value]
-    return ItineraryCard(headline="Itinerary", summary=clip(raw, 520) if raw else "The day plan is still being drawn.")
+    return ItineraryCard(
+        headline="Itinerary",
+        summary=clip(raw, 520) if raw else "The day plan is still being drawn.",
+    )
 
 
 def weather_card_from(raw: str) -> WeatherCard:
     parsed = parse_model(WeatherCard, raw)
     if parsed:
         return parsed  # type: ignore[return-value]
-    return WeatherCard(headline="Weather", summary=clip(raw) if raw else "")
+    # Last resort only: a short sentence, never the whole raw payload.
+    return WeatherCard(headline="Weather", summary=clip(raw, 200) if raw else "")
 
 
 def itinerary_preview(raw: str, limit: int = 3_000) -> str:
@@ -309,11 +375,27 @@ def dump_card(model: BaseModel) -> str:
 
 
 DEFAULT_PACKING = [
-    PackingItem(item="Passport / ID", reason="Required at every gate", category="documents"),
-    PackingItem(item="Cards and a little local cash", reason="Transit and small vendors", category="documents"),
-    PackingItem(item="Phone charger and adapter", reason="Navigation and tickets", category="electronics"),
-    PackingItem(item="Medicines", reason="Keep a small personal kit", category="health"),
-    PackingItem(item="Weather-aware layers", reason="Match the destination forecast", category="clothing"),
+    PackingItem(
+        item="Passport / ID", reason="Required at every gate", category="documents"
+    ),
+    PackingItem(
+        item="Cards and a little local cash",
+        reason="Transit and small vendors",
+        category="documents",
+    ),
+    PackingItem(
+        item="Phone charger and adapter",
+        reason="Navigation and tickets",
+        category="electronics",
+    ),
+    PackingItem(
+        item="Medicines", reason="Keep a small personal kit", category="health"
+    ),
+    PackingItem(
+        item="Weather-aware layers",
+        reason="Match the destination forecast",
+        category="clothing",
+    ),
 ]
 
 
@@ -360,10 +442,17 @@ def fallback_final(state: dict) -> FinalChart:
         )
     for day in itinerary.days:
         events.append(
-            TimelineEvent(when=day.day, title=day.title or day.day, detail=day.summary, kind="activity")
+            TimelineEvent(
+                when=day.day,
+                title=day.title or day.day,
+                detail=day.summary,
+                kind="activity",
+            )
         )
     if destination:
-        events.append(TimelineEvent(when=dates, title=f"Arrive {destination}", kind="destination"))
+        events.append(
+            TimelineEvent(when=dates, title=f"Arrive {destination}", kind="destination")
+        )
     return FinalChart(
         chat_message=chat_message,
         trip_summary=itinerary.summary or chat_message,
@@ -371,8 +460,12 @@ def fallback_final(state: dict) -> FinalChart:
         destination=destination,
         dates=dates,
         travelers=travelers,
-        packing=PackingList(summary="A practical kit for this voyage.", items=DEFAULT_PACKING),
-        timeline=TripTimeline(summary="From origin to destination, in travelling order.", events=events),
+        packing=PackingList(
+            summary="A practical kit for this voyage.", items=DEFAULT_PACKING
+        ),
+        timeline=TripTimeline(
+            summary="From origin to destination, in travelling order.", events=events
+        ),
         assumptions=[],
     )
 
@@ -391,7 +484,11 @@ def assemble_trip_document(state: dict, chart: FinalChart) -> dict:
         budget=budget_card_from(state.get("budget_analysis", "")),
         itinerary=itinerary_card_from(state.get("itinerary", "")),
         weather=weather_card_from(state.get("weather_results", "")),
-        packing=chart.packing if chart.packing.items else PackingList(items=DEFAULT_PACKING, summary=chart.packing.summary),
+        packing=(
+            chart.packing
+            if chart.packing.items
+            else PackingList(items=DEFAULT_PACKING, summary=chart.packing.summary)
+        ),
         timeline=chart.timeline,
         assumptions=chart.assumptions,
     )

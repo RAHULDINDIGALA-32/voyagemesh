@@ -23,7 +23,8 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
-import { ItineraryDays, isItineraryExpanded } from "@/components/trips/ItineraryDays"; // adjust path
+import { ItineraryDays, isItineraryExpanded } from "@/components/trips/ItineraryDays";
+import { WeatherDetails, hasWeatherData } from "@/components/trips/WeatherDetails";
 //import { Stamp } from "@/components/ui/Stamp";
 import { downloadPlanPdf } from "@/lib/export/documents";
 import { asTripDocument } from "@/lib/plan/parse";
@@ -700,31 +701,21 @@ export function VoyageDocument({
 
         <div className={SPACER} aria-hidden="true" />
 
+
         {/* Weather — left */}
         <div ref={setStop(3)} className="relative z-10 md:mr-[48%]">
           <div className="js-stop" data-side="-1">
             <Card
               title={weather?.headline || "Weather"}
               icon={<CloudSun size={19} />}
-              metric={weather?.metric}
-              label={weather?.metric_label}
             >
-              {weather?.summary ? (
-                <p className="text-sm leading-6 text-ink-soft">
-                  {weather.summary}
-                </p>
+              {weather && hasWeatherData(weather) ? (
+                <WeatherDetails weather={weather} />
               ) : (
                 <p className="text-sm text-ink-soft">
                   Destination weather is not available yet.
                 </p>
               )}
-              {weather?.packing_hints?.length ? (
-                <ul className="mt-4 list-disc space-y-1 border-t border-rule pt-3 pl-5 text-sm text-ink-soft">
-                  {weather.packing_hints.map((hint, index) => (
-                    <li key={`${hint}-${index}`}>{hint}</li>
-                  ))}
-                </ul>
-              ) : null}
             </Card>
           </div>
         </div>

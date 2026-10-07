@@ -105,11 +105,34 @@ export type ItineraryCard = {
   highlights?: string[];
 };
 
+export type WeatherDay = {
+  date?: string; // "Mon 12", "Day 1"
+  condition?: string; // "Light rain"
+  high?: string;
+  low?: string;
+  precip_chance?: string; // "40%"
+};
+
 export type WeatherCard = {
   headline?: string;
   summary?: string;
+  /** Kept for backwards compatibility with older trips. */
   metric?: string;
   metric_label?: string;
+
+  condition?: string; // "Partly cloudy"
+  season?: string; // "Monsoon", "Dry season"
+  temp_high?: string;
+  temp_low?: string;
+  temp_unit?: string; // "C" | "F"
+  feels_like?: string;
+  humidity?: string; // "65%"
+  wind?: string; // "12 km/h NW"
+  precip_chance?: string; // "40%"
+  uv_index?: string; // "7"
+
+  forecast?: WeatherDay[];
+  alerts?: string[];
   packing_hints?: string[];
 };
 

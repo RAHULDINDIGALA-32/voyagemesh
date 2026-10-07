@@ -5,7 +5,7 @@ import logging
 from typing import Any
 
 from langchain.agents import create_agent
-from langchain.agents.middleware import wrap_tool_call
+from langchain.agents.middleware import wrap_tool_call, after_model
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import StructuredTool
 from langgraph.errors import GraphRecursionError
@@ -338,6 +338,29 @@ async def _clip_tool_output(request, handler):
     return result
 
 
+def make_json_tool(schema: type[BaseModel] = JsonAnswer) -> StructuredTool:
+    return StructuredTool.from_function(
+        func=_json_tool_fn,
+        name=JSON_TOOL_NAME,
+        description=(
+            "Submit the final JSON answer after research tools are done. "
+            "Call this once. Do not call research tools after this."
+        ),
+        args_schema=schema,
+    )
+
+
+JSON_ANSWER_TOOL = make_json_tool()  # default, unchanged behaviour
+
+
+# End the graph as soon as the model submits the `json` answer.
+@after_model(can_jump_to=["end"])
+def _stop_after_json(state, runtime):
+    if _tool_call_payload(state["messages"][-1]):
+        return {"jump_to": "end"}
+    return None
+
+
 def _build_mcp_agent(
     *,
     llm,
@@ -355,7 +378,7 @@ def _build_mcp_agent(
         llm,
         tools,
         system_prompt=system_prompt,
-        middleware=[_clip_tool_output],
+        middleware=[_clip_tool_output, _stop_after_json],
     )
 
 
@@ -393,6 +416,7 @@ async def _final_answer_from_evidence(
     request: str,
     messages: list,
     llm=None,
+    json_tool=JSON_ANSWER_TOOL,
 ) -> str:
     """
     Force a final JSON card using whatever research evidence
@@ -423,7 +447,7 @@ async def _final_answer_from_evidence(
 
     try:
         result = await invoke(
-            selected_llm.bind_tools([JSON_ANSWER_TOOL]),
+            selected_llm.bind_tools([json_tool]),
             prompt,
             name="mcp_evidence_fallback",
         )
@@ -611,6 +635,7 @@ async def run_mcp_agent(
     request: str,
     tool_names: tuple[str, ...] | None = None,
     max_rounds: int = DEFAULT_TOOL_ROUNDS,
+    answer_schema: type[BaseModel] = JsonAnswer,
 ) -> str:
     """
     Run a single-purpose MCP agent and return its evidence-led result.
@@ -640,6 +665,7 @@ async def run_mcp_agent(
         Fewer tools means fewer schema tokens per LLM request.
     """
 
+    json_tool = make_json_tool(answer_schema)
     tools = await get_server_tools(server_name)
 
     if tool_names:
@@ -653,7 +679,7 @@ async def run_mcp_agent(
     # Register the final JSON tool alongside the MCP research tools.
     tools = [
         *tools,
-        JSON_ANSWER_TOOL,
+        json_tool,
     ]
 
     log.info(

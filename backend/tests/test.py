@@ -40,5 +40,5 @@ state = {
     },
 }
 
-result = asyncio.run(itinerary_agent(state))
+result = asyncio.run(weather_agent(state))
 print(result)
