@@ -30,9 +30,13 @@ class HitlInterventionRepository:
                     context JSONB NOT NULL DEFAULT '{}'::jsonb,
                     response JSONB,
                     created_at TIMESTAMPTZ NOT NULL,
+                    resuming_at TIMESTAMPTZ,
                     resolved_at TIMESTAMPTZ
                 )
                 """)
+            await connection.execute(
+                "ALTER TABLE hitl_interventions ADD COLUMN IF NOT EXISTS resuming_at TIMESTAMPTZ"
+            )
             await connection.execute("""
                 CREATE INDEX IF NOT EXISTS voyagemesh_hitl_thread_status_idx
                 ON hitl_interventions (thread_id, status)
@@ -94,7 +98,7 @@ class HitlInterventionRepository:
             await connection.execute(
                 """
                 UPDATE hitl_interventions
-                SET status = 'resuming', response = %s::jsonb
+                SET status = 'resuming', response = %s::jsonb, resuming_at = NOW()
                 WHERE intervention_id = %s
                 """,
                 (json.dumps(response), intervention_id),
@@ -118,8 +122,21 @@ class HitlInterventionRepository:
             await connection.execute(
                 """
                 UPDATE hitl_interventions
-                SET status = 'pending', response = NULL
+                SET status = 'pending', response = NULL, resuming_at = NULL
                 WHERE intervention_id = %s AND status = 'resuming'
                 """,
                 (intervention_id,),
             )
+
+    async def stale_resuming(self, age_seconds: int = 300) -> list[dict[str, Any]]:
+        async with self.pool.connection() as connection:
+            result = await connection.execute(
+                """
+                SELECT intervention_id, thread_id, response
+                FROM hitl_interventions
+                WHERE status = 'resuming'
+                  AND resuming_at < NOW() - make_interval(secs => %s)
+                """,
+                (age_seconds,),
+            )
+            return await result.fetchall()

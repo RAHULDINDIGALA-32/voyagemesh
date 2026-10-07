@@ -2,7 +2,13 @@
 
 import { FormEvent, useState } from "react";
 import { Button } from "@/components/ui/Button";
-import { respondToIntervention } from "@/lib/api/trips";
+import {
+  getTrip,
+  getTripStatus,
+  reopenIntervention,
+  respondToIntervention,
+  retryTrip,
+} from "@/lib/api/trips";
 import type { TripPayload } from "@/types/trip";
 
 const REVIEW_PREFERENCES = [
@@ -34,6 +40,7 @@ export function HitlCard({
   const intervention = payload.human_intervention;
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [recoverableAction, setRecoverableAction] = useState<"retry" | "reopen" | null>(null);
   const [fields, setFields] = useState<Record<string, string>>({});
   const [preference, setPreference] = useState("reduce_cost");
   const [instructions, setInstructions] = useState("");
@@ -45,6 +52,7 @@ export function HitlCard({
 
   async function submit(action: string, data: Record<string, string> = {}) {
     if (!current.intervention_id || !current.version || !payload.thread_id) {
+      setError("This review is missing required state. Reload the voyage and try again.");
       return;
     }
     setPending(true);
@@ -59,16 +67,57 @@ export function HitlCard({
           action,
           data,
         },
-        payload.workflow_token,
       );
       onResolved(next);
-    } catch (caught) {
-      const status = (caught as Error & { status?: number }).status;
-      if (status === 410) {
-        setError("This review expired. Start a new voyage.");
-      } else {
-        setError(caught instanceof Error ? caught.message : "Unable to continue");
+      if (next.status === "resuming") {
+        await waitForResume(token, payload.thread_id, onResolved);
       }
+    } catch (caught) {
+      const failure = caught as Error & { code?: string; recoverable?: boolean };
+      if ((failure.code === "stale_hitl" || failure.code === "already_resolved") && payload.thread_id) {
+        const live = await getTrip(token, payload.thread_id);
+        onResolved(live);
+      }
+      setRecoverableAction(failure.code === "hitl_expired" ? "reopen" : failure.recoverable ? "retry" : null);
+      setError(caught instanceof Error ? caught.message : "Unable to continue");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function waitForResume(
+    accessToken: string,
+    threadId: string,
+    resolve: (next: TripPayload) => void,
+  ) {
+    for (let attempt = 0; attempt < 90; attempt += 1) {
+      await new Promise((done) => window.setTimeout(done, 1500));
+      const status = await getTripStatus(accessToken, threadId);
+      if (status.status === "resuming" || status.status === "running") continue;
+      const next = await getTrip(accessToken, threadId);
+      resolve(next);
+      if (status.status === "failed") {
+        setRecoverableAction("retry");
+        setError("The decision could not be applied. You can retry the workflow.");
+      }
+      return;
+    }
+    setError("The workflow is taking longer than expected. You can reload to check its status.");
+  }
+
+  async function recover() {
+    if (!payload.thread_id || !recoverableAction) return;
+    setPending(true);
+    setError(null);
+    try {
+      const next = recoverableAction === "reopen"
+        ? await reopenIntervention(token, payload.thread_id)
+        : await retryTrip(token, payload.thread_id);
+      onResolved(next);
+      if (next.status === "resuming") await waitForResume(token, payload.thread_id, onResolved);
+      setRecoverableAction(null);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to recover workflow");
     } finally {
       setPending(false);
     }
@@ -119,7 +168,7 @@ export function HitlCard({
             {Object.entries(intervention.context ?? {}).map(([key, value]) => (
               <div key={key}>
                 <dt className="text-ink-soft">{key.replaceAll("_", " ")}</dt>
-                <dd>{value}</dd>
+                <dd>{String(value)}</dd>
               </div>
             ))}
           </dl>
@@ -166,24 +215,43 @@ export function HitlCard({
 
       {intervention.type === "itinerary_review" ? (
         <div className="mt-4 space-y-3">
+          {(() => {
+            const rawDays = current.context?.itinerary_days;
+            const days = Array.isArray(rawDays)
+              ? rawDays as Array<{ day?: string; title?: string; summary?: string; stops?: string[] }>
+              : payload.itinerary_details?.days ?? [];
+            return days.length ? (
+              <div className="space-y-3 border-y border-rule py-3">
+                {days.map((day, index) => (
+                  <div key={`${day.day ?? "day"}-${index}`} className="text-sm">
+                    <p className="font-medium">{day.day} · {day.title}</p>
+                    {day.summary ? <p className="mt-1 text-xs leading-5 text-ink-soft">{day.summary}</p> : null}
+                    {day.stops?.length ? <p className="mt-1 text-xs text-ink-soft">{day.stops.join(" · ")}</p> : null}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="border border-danger/40 p-3 text-sm text-danger">The itinerary preview is unavailable, so review cannot be accepted yet.</p>
+            );
+          })()}
           {payload.weather_details?.summary || current.context?.weather_preview ? (
             <p className="text-xs leading-5 text-ink-soft">
               {payload.weather_details?.headline || "Weather"}
               {payload.weather_details?.metric ? ` · ${payload.weather_details.metric}` : ""}
               {" — "}
-              {payload.weather_details?.summary || current.context?.weather_preview}
+              {payload.weather_details?.summary || String(current.context?.weather_preview ?? "")}
             </p>
           ) : null}
           <div className="flex flex-wrap gap-2">
             <Button
               type="button"
               variant="brass"
-              disabled={pending}
+              disabled={pending || !getPreviewDays(current, payload).length}
               onClick={() => void submit("accept")}
             >
               Accept
             </Button>
-            <Button type="button" disabled={pending} onClick={() => void submit("regenerate")}>
+            <Button type="button" disabled={pending || !getPreviewDays(current, payload).length} onClick={() => void submit("regenerate")}>
               Regenerate
             </Button>
           </div>
@@ -215,14 +283,27 @@ export function HitlCard({
               placeholder="Optional instructions"
               className="h-20 w-full rounded-[3px] border border-rule bg-paper px-2 py-1.5 text-sm"
             />
-            <Button type="submit" disabled={pending}>
+            <Button type="submit" disabled={pending || !getPreviewDays(current, payload).length}>
               Modify itinerary
             </Button>
           </form>
         </div>
       ) : null}
 
-      {error ? <p className="mt-3 text-sm text-danger">{error}</p> : null}
+      {error ? (
+        <div className="mt-3 space-y-2 text-sm text-danger">
+          <p>{error}</p>
+          {recoverableAction ? <Button type="button" onClick={() => void recover()} disabled={pending}>{recoverableAction === "reopen" ? "Reopen review" : "Retry"}</Button> : null}
+        </div>
+      ) : null}
     </section>
   );
+}
+
+function getPreviewDays(
+  intervention: NonNullable<TripPayload["human_intervention"]>,
+  payload: TripPayload,
+) {
+  const days = intervention.context?.itinerary_days;
+  return Array.isArray(days) ? days : payload.itinerary_details?.days ?? [];
 }

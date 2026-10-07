@@ -66,6 +66,7 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
     //.filter((part) => part?.trim())
     //.join(" · ");
   const interventionPending = payload?.human_intervention?.status === "pending";
+  const interventionResuming = payload?.status === "resuming";
   const greeting = useMemo(() => pickGreeting(fullName), [fullName]);
   const isFresh = !conversationId && messages.length === 0 && !busy;
 
@@ -158,7 +159,7 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
     <Composer
       variant={isFresh ? "hero" : "dock"}
       showSuggestions={isFresh}
-      disabled={busy || interventionPending}
+      disabled={busy || interventionPending || interventionResuming}
       onSend={dispatch}
     />
   );
@@ -227,6 +228,12 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
 
               {payload?.status === "blocked" ? (
                 <div className="mt-4 border border-steel px-3 py-3 text-sm">{payload.answer}</div>
+              ) : null}
+
+              {interventionResuming ? (
+                <div className="mt-4 border border-brass/50 bg-paper-raised px-3 py-3 text-sm">
+                  Applying your decision…
+                </div>
               ) : null}
 
               {token && payload && interventionPending ? (

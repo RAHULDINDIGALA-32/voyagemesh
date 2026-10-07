@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import date
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError
@@ -122,6 +123,63 @@ class ItineraryCard(BaseModel):
     metric_label: str = "days"
     days: list[ItineraryDay] = Field(default_factory=list)
     highlights: list[str] = Field(default_factory=list)
+
+
+def expected_days(constraints: dict[str, str]) -> int | None:
+    """Return an inclusive day count for common natural-language date ranges."""
+    value = str((constraints or {}).get("travel_dates") or "")
+    match = re.search(
+        r"(\d{1,2})\s+([A-Za-z]+)\s*(?:to|until|through|-)\s*"
+        r"(\d{1,2})\s+([A-Za-z]+)(?:\s*,?\s*(\d{4}))?",
+        value,
+        re.I,
+    )
+    if not match:
+        match = re.search(
+            r"(\d{1,2})\s*(?:to|until|through|-)\s*(\d{1,2})\s+"
+            r"([A-Za-z]+)(?:\s*,?\s*(\d{4}))?",
+            value,
+            re.I,
+        )
+        if match:
+            # Normalize the compact form to the full-form groups.
+            groups = (match.group(1), match.group(3), match.group(2), match.group(3), match.group(4))
+            class _Match:
+                def group(self, index: int):
+                    return groups[index - 1]
+            match = _Match()
+    if not match:
+        return None
+    try:
+        year = int(match.group(5) or date.today().year)
+        start = date.fromisoformat(
+            f"{year}-{_month_number(match.group(2)):02d}-{int(match.group(1)):02d}"
+        )
+        end_year = year if match.group(5) else year
+        end = date.fromisoformat(
+            f"{end_year}-{_month_number(match.group(4)):02d}-{int(match.group(3)):02d}"
+        )
+        if end < start:
+            end = date.fromisoformat(
+                f"{year + 1}-{_month_number(match.group(4)):02d}-{int(match.group(3)):02d}"
+            )
+        return (end - start).days + 1
+    except (ValueError, KeyError):
+        return None
+
+
+def _month_number(value: str) -> int:
+    name = value.lower()[:3]
+    months = {"jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+              "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12}
+    return months[name]
+
+
+def itinerary_is_valid(card: ItineraryCard, constraints: dict[str, str]) -> bool:
+    required = expected_days(constraints) or 1
+    if len(card.days) < required:
+        return False
+    return all(day.stops or day.summary.strip() for day in card.days)
 
 
 class WeatherCard(BaseModel):

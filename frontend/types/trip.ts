@@ -173,7 +173,6 @@ export type TripPayload = {
   input_guardrail?: Record<string, string | boolean>;
   output_validation?: Record<string, string | boolean>;
   human_intervention?: Intervention;
-  workflow_token?: string | null;
   errors?: string[];
   conversation_id?: string | null;
   trip_id?: string | null;
@@ -188,7 +187,7 @@ export type Intervention = {
   question?: string;
   required_fields?: string[];
   allowed_actions?: string[];
-  context?: Record<string, string>;
+  context?: Record<string, unknown>;
   expires_at?: string;
 };
 

@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from psycopg_pool import AsyncConnectionPool
+from hitl.errors import NotOwner, WorkflowNotFound
 
 
 def utc_now() -> datetime:
@@ -27,6 +28,8 @@ def map_status(execution_status: str) -> str:
     return {
         "running": "draft",
         "awaiting_human": "awaiting_you",
+        "resuming": "resuming",
+        "incomplete": "draft",
         "completed": "ready",
         "blocked": "blocked",
         "failed": "failed",
@@ -137,9 +140,16 @@ class ProductRepository:
 
     async def require_thread(self, thread_id: str, user_id: str) -> dict[str, Any]:
         record = await self.get_thread(thread_id, user_id)
-        if record is None:
-            raise LookupError("Trip not found")
-        return record
+        if record is not None:
+            return record
+        async with self.pool.connection() as connection:
+            result = await connection.execute(
+                "SELECT 1 FROM voyagemesh_conversations WHERE thread_id = %s AND deleted_at IS NULL",
+                (thread_id,),
+            )
+            if await result.fetchone():
+                raise NotOwner("You do not have access to this voyage")
+        raise WorkflowNotFound("Trip not found")
 
     async def get_thread(self, thread_id: str, user_id: str) -> dict[str, Any] | None:
         async with self.pool.connection() as connection:
@@ -152,6 +162,18 @@ class ProductRepository:
                 WHERE c.thread_id = %s AND c.user_id = %s AND c.deleted_at IS NULL
                 """,
                 (thread_id, user_id),
+            )
+            return await result.fetchone()
+
+    async def get_thread_owner(self, thread_id: str) -> dict[str, Any] | None:
+        async with self.pool.connection() as connection:
+            result = await connection.execute(
+                """
+                SELECT c.thread_id, c.user_id, c.id AS conversation_id
+                FROM voyagemesh_conversations c
+                WHERE c.thread_id = %s AND c.deleted_at IS NULL
+                """,
+                (thread_id,),
             )
             return await result.fetchone()
 

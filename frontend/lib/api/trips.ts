@@ -1,5 +1,4 @@
 import { apiFetch } from "./client";
-import { readWorkflowToken } from "./tokens";
 import type { ChatMessage, ConversationSummary, TripPayload, TripRecord } from "@/types/trip";
 
 export function listConversations(token: string) {
@@ -43,18 +42,26 @@ export function respondToIntervention(
     action: string;
     data?: Record<string, string>;
   },
-  workflowToken?: string | null,
 ) {
-  const activeWorkflowToken = workflowToken ?? readWorkflowToken(threadId);
-  if (!activeWorkflowToken) {
-    throw new Error("This session no longer holds the workflow token. Start a new voyage.");
-  }
   return apiFetch<TripPayload>(`/api/v1/trips/${threadId}/interventions`, accessToken, {
     method: "POST",
     body: JSON.stringify({
       ...payload,
       data: payload.data ?? {},
-      workflow_token: activeWorkflowToken,
     }),
   });
+}
+
+export function getTripStatus(token: string, threadId: string) {
+  return apiFetch<{ thread_id: string; status: string; failure_reason?: string; errors?: string[] }>(
+    `/api/v1/trips/${threadId}/status`, token,
+  );
+}
+
+export function retryTrip(token: string, threadId: string) {
+  return apiFetch<TripPayload>(`/api/v1/trips/${threadId}/retry`, token, { method: "POST" });
+}
+
+export function reopenIntervention(token: string, threadId: string) {
+  return apiFetch<TripPayload>(`/api/v1/trips/${threadId}/interventions/reopen`, token, { method: "POST" });
 }

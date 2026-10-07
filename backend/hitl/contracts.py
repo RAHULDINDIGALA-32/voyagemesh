@@ -5,6 +5,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
+from hitl.errors import InterventionExpired, InvalidResponse, StaleIntervention
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -48,7 +49,6 @@ class HumanResponseRequest(BaseModel):
     expected_version: int = Field(ge=1)
     action: str = Field(min_length=1, max_length=40)
     data: dict[str, str] = Field(default_factory=dict)
-    workflow_token: str = Field(min_length=32, max_length=256)
 
     @field_validator("data")
     @classmethod
@@ -185,15 +185,15 @@ def validate_human_response(
 ) -> dict[str, Any]:
     """Validate and sanitize a response before it can resume a graph."""
     if intervention.get("status") != "pending":
-        raise ValueError("This intervention is no longer pending")
+        raise StaleIntervention("This intervention is no longer pending")
     if response.intervention_id != intervention.get("intervention_id"):
-        raise ValueError("The intervention does not match the current workflow state")
+        raise StaleIntervention("The intervention does not match the current workflow state")
     if response.expected_version != intervention.get("version"):
-        raise ValueError("This review is stale. Please use the latest intervention.")
+        raise StaleIntervention("This review is stale. Please use the latest intervention.")
     if utc_now() >= datetime.fromisoformat(intervention["expires_at"]):
-        raise TimeoutError("This intervention has expired. Start a new trip request.")
+        raise InterventionExpired("This intervention has expired. Reopen the review to continue.")
     if response.action not in intervention.get("allowed_actions", []):
-        raise ValueError("That action is not available for this intervention")
+        raise InvalidResponse("That action is not available for this intervention")
 
     response_data = response.data
     intervention_type = intervention["type"]
@@ -202,24 +202,24 @@ def validate_human_response(
         if set(response_data) - CANONICAL_CONSTRAINTS or not required.issubset(
             response_data
         ):
-            raise ValueError("Please provide all requested travel details")
+            raise InvalidResponse("Please provide all requested travel details")
     elif intervention_type == "budget_decision":
         if response.action == "increase_budget":
             amount = _parse_amount(response_data.get("budget", ""))
             if not amount or amount[0] <= 0:
-                raise ValueError("Provide a valid increased budget")
+                raise InvalidResponse("Provide a valid increased budget")
         elif response_data:
-            raise ValueError("This budget action does not accept additional fields")
+            raise InvalidResponse("This budget action does not accept additional fields")
     elif intervention_type == "itinerary_review":
         if response.action == "modify":
             preference = response_data.get("preference")
             if preference not in REVIEW_PREFERENCES:
-                raise ValueError("Choose a supported itinerary modification")
+                raise InvalidResponse("Choose a supported itinerary modification")
             if set(response_data) - {"preference", "instructions"}:
-                raise ValueError(
+                    raise InvalidResponse(
                     "The itinerary modification contains unsupported fields"
                 )
         elif response_data:
-            raise ValueError("This itinerary action does not accept additional fields")
+            raise InvalidResponse("This itinerary action does not accept additional fields")
 
     return {"action": response.action, "data": response_data}

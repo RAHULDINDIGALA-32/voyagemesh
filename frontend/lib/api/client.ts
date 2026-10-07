@@ -15,11 +15,19 @@ export async function apiFetch<T>(
   });
   if (!response.ok) {
     const detail = await response.json().catch(() => ({ detail: response.statusText }));
-    const message = typeof detail.detail === "string"
+    const apiDetail = detail.detail && typeof detail.detail === "object"
+      ? detail.detail as { code?: string; detail?: string; recoverable?: boolean }
+      : undefined;
+    const message = typeof apiDetail?.detail === "string" ? apiDetail.detail
+      : typeof detail.detail === "string"
       ? detail.detail
       : typeof detail.message === "string" ? detail.message : "Request failed";
-    const error = new Error(message) as Error & { status?: number };
+    const error = new Error(message) as Error & {
+      status?: number; code?: string; recoverable?: boolean;
+    };
     error.status = response.status;
+    error.code = apiDetail?.code;
+    error.recoverable = apiDetail?.recoverable;
     throw error;
   }
   if (response.status === 204) {

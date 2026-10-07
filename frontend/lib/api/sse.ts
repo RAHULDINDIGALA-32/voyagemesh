@@ -1,5 +1,4 @@
 import { apiBase } from "./client";
-import { saveWorkflowToken } from "./tokens";
 import type { TripPayload } from "@/types/trip";
 
 export type SseEvent = {
@@ -41,11 +40,6 @@ export async function readSseStream(
       } catch {
         onEvent({ event: "error", data: { detail: "Received an invalid stream event" } });
         continue;
-      }
-      const threadId = data.thread_id;
-      const token = data.workflow_token;
-      if (typeof threadId === "string" && typeof token === "string") {
-        saveWorkflowToken(threadId, token);
       }
       onEvent({ event: eventName, data });
       eventName = "message";

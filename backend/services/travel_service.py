@@ -1,37 +1,119 @@
-import hashlib
-import hmac
-import secrets
+import asyncio
+import logging
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 from langgraph.graph.state import CompiledStateGraph
 
 from graph.workflow import build_graph
-from hitl.contracts import HumanResponseRequest, validate_human_response
+from hitl.contracts import HumanResponseRequest, create_intervention, validate_human_response
+from hitl.errors import (
+    AlreadyResolved,
+    ResumeInProgress,
+    InvalidResponse,
+    StaleIntervention,
+)
 from agents.structured import (
     budget_card_from,
     flight_card_from,
     hotel_card_from,
     itinerary_card_from,
+    itinerary_is_valid,
     weather_card_from,
 )
 from infrastructure.database import Database
 from infrastructure.product_repository import ProductRepository
 from langgraph.types import Command
 
+log = logging.getLogger(__name__)
+
+
+def is_complete(values: dict[str, Any]) -> bool:
+    document = values.get("trip_document") or {}
+    if not document or not values.get("final_answer"):
+        return False
+    if "itinerary_agent" in values.get("selected_agents", []):
+        if not (document.get("itinerary") or {}).get("days"):
+            return False
+    return (values.get("output_validation") or {}).get("allowed", True) is not False
+
+
+def derive_status(values: dict[str, Any], next_nodes: tuple | list) -> str:
+    intervention = values.get("human_intervention") or {}
+    if values.get("request_blocked"):
+        return "blocked"
+    if values.get("execution_status") == "failed":
+        return "failed"
+    if intervention.get("status") == "pending":
+        return "awaiting_human"
+    if values.get("execution_status") == "resuming":
+        return "resuming"
+    if next_nodes:
+        return "running"
+    if is_complete(values):
+        return "completed"
+    return "incomplete"
+
 
 class TravelService:
     def __init__(self):
         self.database = Database()
         self.graph: CompiledStateGraph | None = None
+        self._resumes: dict[str, asyncio.Task] = {}
+        self._reaper_task: asyncio.Task | None = None
 
     async def startup(self) -> None:
         checkpointer = await self.database.connect()
         self.graph = build_graph(checkpointer=checkpointer)
+        self._reaper_task = asyncio.create_task(self._reap_stale_resumes())
 
     async def shutdown(self) -> None:
+        for task in self._resumes.values():
+            task.cancel()
+        if self._reaper_task is not None:
+            self._reaper_task.cancel()
+            await asyncio.gather(self._reaper_task, return_exceptions=True)
+            self._reaper_task = None
+        if self._resumes:
+            await asyncio.gather(*self._resumes.values(), return_exceptions=True)
+        self._resumes.clear()
         await self.database.close()
         self.graph = None
+
+    async def _reap_stale_resumes(self) -> None:
+        while True:
+            try:
+                await asyncio.sleep(60)
+                repository = self.database.hitl_repository
+                if repository is None:
+                    continue
+                for row in await repository.stale_resuming():
+                    thread_id = row["thread_id"]
+                    if thread_id in self._resumes:
+                        continue
+                    owner = await self._product().get_thread_owner(thread_id)
+                    if owner is None:
+                        continue
+                    snapshot = await self._get_snapshot(thread_id)
+                    if not snapshot.next:
+                        await repository.finalize(row["intervention_id"])
+                        continue
+                    response = row.get("response") or {}
+                    task = asyncio.create_task(
+                        self._run_resume(
+                            thread_id,
+                            str(owner["user_id"]),
+                            row["intervention_id"],
+                            response,
+                        )
+                    )
+                    self._resumes[thread_id] = task
+                    task.add_done_callback(lambda done, key=thread_id: self._resume_done(key, done))
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("HITL resume reaper failed")
 
     def _product(self) -> ProductRepository:
         repository = self.database.product_repository
@@ -40,7 +122,7 @@ class TravelService:
         return repository
 
     def _persistable(self, result: dict) -> dict:
-        return {key: value for key, value in result.items() if key != "workflow_token"}
+        return dict(result)
 
     def _assistant_copy(self, result: dict) -> str:
         intervention = result.get("human_intervention") or {}
@@ -52,12 +134,14 @@ class TravelService:
             return str(result.get("answer") or "I can't process that request.")
         return str(result.get("answer") or result.get("itinerary") or "Plan updated.")
 
-    async def _persist_result(self, thread_id: str, user_id: str, result: dict) -> None:
+    async def _persist_result(
+        self, thread_id: str, user_id: str, result: dict, *, add_message: bool = False
+    ) -> None:
         await self._product().sync_from_payload(
             thread_id=thread_id,
             user_id=user_id,
             payload=self._persistable(result),
-            assistant_content=self._assistant_copy(result),
+            assistant_content=self._assistant_copy(result) if add_message else None,
         )
 
     def _get_graph(self) -> CompiledStateGraph:
@@ -86,7 +170,7 @@ class TravelService:
         result: dict[str, Any],
         request_id: str,
         thread_id: str,
-        workflow_token: str | None = None,
+        next_nodes: tuple | list = (),
     ) -> dict:
         document = result.get("trip_document")
         if not isinstance(document, dict):
@@ -117,7 +201,7 @@ class TravelService:
         result_payload = {
             "request_id": request_id,
             "thread_id": thread_id,
-            "status": result.get("execution_status", result.get("status", "completed")),
+            "status": derive_status(result, next_nodes),
             "answer": result.get("final_answer", result.get("answer")),
             "flight_results": result.get("flight_results"),
             "hotel_results": result.get("hotel_results"),
@@ -142,25 +226,17 @@ class TravelService:
             "human_intervention": result.get("human_intervention", {}),
             "errors": result.get("errors", []),
         }
-        if workflow_token is not None:
-            result_payload["workflow_token"] = workflow_token
         return result_payload
 
     @staticmethod
-    def _new_workflow_token() -> tuple[str, str]:
-        token = secrets.token_urlsafe(32)
-        return token, hashlib.sha256(token.encode("utf-8")).hexdigest()
-
-    @staticmethod
-    def _initial_state(query: str, request_id: str, token_hash: str) -> dict:
+    def _initial_state(query: str, request_id: str) -> dict:
         return {
             "user_query": query,
             "request_id": request_id,
-            "workflow_token_hash": token_hash,
             "trip_constraints": {},
             "selected_agents": [],
             "supervisor_reasoning": "",
-            "completed_agents": [],
+            "completed_agents": ["__reset__"],
             "request_blocked": False,
             "blocked_reason": "",
             "execution_status": "running",
@@ -179,7 +255,7 @@ class TravelService:
             "itinerary": "",
             "final_answer": "",
             "trip_document": {},
-            "errors": [],
+            "errors": ["__reset__"],
         }
 
     async def _sync_pending_intervention(self, thread_id: str, values: dict) -> None:
@@ -196,7 +272,6 @@ class TravelService:
 
         request_id = uuid.uuid4().hex
         thread_id = f"trip_{uuid.uuid4().hex}"
-        workflow_token, token_hash = self._new_workflow_token()
         owned = await self._product().create_owned_thread(
             user_id=user_id,
             thread_id=thread_id,
@@ -209,13 +284,9 @@ class TravelService:
         )
 
         await graph.ainvoke(
-            self._initial_state(query, request_id, token_hash), config=config
+            self._initial_state(query, request_id), config=config
         )
-        result = await self.get_trip(thread_id, user_id, prefer_persisted=False)
-        await self._sync_pending_intervention(
-            thread_id, await self._get_state_values(thread_id)
-        )
-        result["workflow_token"] = workflow_token
+        result = await self._project(thread_id, user_id, add_message=True)
         result["conversation_id"] = owned["conversation_id"]
         result["trip_id"] = owned["trip_id"]
         await self._persist_result(thread_id, user_id, result)
@@ -224,7 +295,6 @@ class TravelService:
     async def stream_trip(self, query: str, user_id: str):
         request_id = uuid.uuid4().hex
         thread_id = f"trip_{uuid.uuid4().hex}"
-        workflow_token, token_hash = self._new_workflow_token()
         owned = await self._product().create_owned_thread(
             user_id=user_id,
             thread_id=thread_id,
@@ -238,14 +308,13 @@ class TravelService:
             request_id=request_id,
         )
 
-        initial_state = self._initial_state(query, request_id, token_hash)
+        initial_state = self._initial_state(query, request_id)
 
         yield {
             "event": "started",
             "data": {
                 "request_id": request_id,
                 "thread_id": thread_id,
-                "workflow_token": workflow_token,
                 "conversation_id": owned["conversation_id"],
                 "trip_id": owned["trip_id"],
             },
@@ -265,15 +334,9 @@ class TravelService:
                     },
                 }
 
-        result = await self.get_trip(thread_id, user_id, prefer_persisted=False)
-        await self._sync_pending_intervention(
-            thread_id, await self._get_state_values(thread_id)
-        )
+        result = await self._project(thread_id, user_id, add_message=True)
         result["conversation_id"] = owned["conversation_id"]
         result["trip_id"] = owned["trip_id"]
-        result["workflow_token"] = workflow_token
-        await self._persist_result(thread_id, user_id, result)
-
         yield {
             "event": (
                 "awaiting_human"
@@ -283,7 +346,7 @@ class TravelService:
             "data": result,
         }
 
-    async def _get_state_values(self, thread_id: str) -> dict:
+    async def _get_snapshot(self, thread_id: str):
         graph = self._get_graph()
         snapshot = await graph.aget_state(
             {
@@ -295,7 +358,25 @@ class TravelService:
 
         if not snapshot.values:
             raise LookupError("Trip not found")
-        return snapshot.values
+        return snapshot
+
+    async def _get_state_values(self, thread_id: str) -> dict:
+        return (await self._get_snapshot(thread_id)).values
+
+    async def _project(
+        self, thread_id: str, user_id: str, *, add_message: bool = False
+    ) -> dict:
+        snapshot = await self._get_snapshot(thread_id)
+        result = self._format_result(
+            snapshot.values,
+            snapshot.values.get("request_id", ""),
+            thread_id,
+            list(snapshot.next),
+        )
+        await self._sync_pending_intervention(thread_id, snapshot.values)
+        await self._persist_result(thread_id, user_id, result, add_message=add_message)
+        log.info("projection written thread=%s status=%s", thread_id, result["status"])
+        return result
 
     async def get_trip(
         self,
@@ -308,22 +389,34 @@ class TravelService:
             owned = await self._product().require_thread(thread_id, user_id)
         else:
             owned = None
-        # Supabase is the durable source for an already generated plan. LangGraph
-        # checkpoints can be unavailable after a process restart, and must not
-        # cause a completed document to render as an empty trip.
+        snapshot = await self._get_snapshot(thread_id)
+        live_status = derive_status(snapshot.values, list(snapshot.next))
         stored_payload = owned.get("latest_payload") if owned is not None else None
-        if prefer_persisted and isinstance(stored_payload, dict) and stored_payload:
+        if user_id is not None and live_status in {
+            "running", "awaiting_human", "resuming", "incomplete", "failed"
+        }:
+            result = await self._project(thread_id, user_id)
+            result["thread_id"] = thread_id
+            result["conversation_id"] = str(owned["conversation_id"])
+            result["trip_id"] = str(owned["trip_id"])
+            result["title"] = owned["title"]
+            return result
+        if (not prefer_persisted or not isinstance(stored_payload, dict)
+                or not stored_payload or live_status in {
+                    "running", "awaiting_human", "resuming", "incomplete", "failed"
+                }):
+            result = self._format_result(
+                snapshot.values,
+                snapshot.values.get("request_id", ""),
+                thread_id,
+                list(snapshot.next),
+            )
+        else:
             result = self._format_result(
                 stored_payload,
                 str(stored_payload.get("request_id") or ""),
                 thread_id,
-            )
-        else:
-            values = await self._get_state_values(thread_id)
-            result = self._format_result(
-                values,
-                values.get("request_id", ""),
-                thread_id,
+                list(snapshot.next),
             )
         if owned is not None:
             result["thread_id"] = thread_id
@@ -336,47 +429,174 @@ class TravelService:
         self, thread_id: str, response: HumanResponseRequest, user_id: str
     ) -> dict:
         await self._product().require_thread(thread_id, user_id)
-        values = await self._get_state_values(thread_id)
-        expected_hash = values.get("workflow_token_hash", "")
-        actual_hash = hashlib.sha256(
-            response.workflow_token.encode("utf-8")
-        ).hexdigest()
-        if not expected_hash or not hmac.compare_digest(expected_hash, actual_hash):
-            raise PermissionError("Invalid workflow token")
-
-        intervention = values.get("human_intervention", {})
+        snapshot = await self._get_snapshot(thread_id)
+        intervention = snapshot.values.get("human_intervention", {})
+        if (intervention.get("intervention_id") == response.intervention_id
+                and intervention.get("status") != "pending"):
+            return await self._project(thread_id, user_id)
         sanitized_response = validate_human_response(intervention, response)
         repository = self.database.hitl_repository
         if repository is None:
             raise RuntimeError("HITL repository is not initialized")
         await repository.ensure_pending(thread_id, intervention)
-        claim = await repository.claim(
-            thread_id=thread_id,
-            intervention_id=response.intervention_id,
-            state_version=response.expected_version,
-            response=sanitized_response,
+        try:
+            claim = await repository.claim(
+                thread_id=thread_id,
+                intervention_id=response.intervention_id,
+                state_version=response.expected_version,
+                response=sanitized_response,
+            )
+        except LookupError as exc:
+            raise StaleIntervention("This review is stale. Please reload the voyage.") from exc
+        log.info(
+            "HITL decision claimed thread=%s intervention=%s version=%s status=%s",
+            thread_id, response.intervention_id, response.expected_version, claim.status,
         )
-        if claim.status != "claimed":
-            return await self.get_trip(thread_id, user_id)
+        if claim.status == "in_progress":
+            raise ResumeInProgress("This decision is already being applied")
+        if claim.status == "resolved":
+            raise AlreadyResolved("This decision has already been applied")
 
+        await self._get_graph().aupdate_state(
+            {"configurable": {"thread_id": thread_id}},
+            {"execution_status": "resuming"},
+        )
+        task = asyncio.create_task(
+            self._run_resume(thread_id, user_id, response.intervention_id, sanitized_response)
+        )
+        self._resumes[thread_id] = task
+        task.add_done_callback(lambda done: self._resume_done(thread_id, done))
+        result = await self._project(thread_id, user_id)
+        result["status"] = "resuming"
+        return result
+
+    def _resume_done(self, thread_id: str, task: asyncio.Task) -> None:
+        self._resumes.pop(thread_id, None)
+        if not task.cancelled() and task.exception() is not None:
+            log.exception("resume task failed thread=%s", thread_id, exc_info=task.exception())
+
+    async def _run_resume(
+        self, thread_id: str, user_id: str, intervention_id: str, resume_payload: dict
+    ) -> None:
+        repository = self.database.hitl_repository
+        if repository is None:
+            raise RuntimeError("HITL repository is not initialized")
         try:
             await self._get_graph().ainvoke(
-                Command(resume=sanitized_response),
+                Command(resume=resume_payload),
                 config={"configurable": {"thread_id": thread_id}},
             )
-        except Exception:
-            await repository.release(response.intervention_id)
-            raise
+            await repository.finalize(intervention_id)
+            log.info("resume finished thread=%s intervention=%s", thread_id, intervention_id)
+        except Exception as exc:
+            log.exception("resume failed thread=%s intervention=%s", thread_id, intervention_id)
+            snapshot = await self._get_snapshot(thread_id)
+            consumed = snapshot.values.get("human_intervention", {}).get("status") != "pending"
+            if consumed:
+                await repository.finalize(intervention_id)
+            else:
+                await repository.release(intervention_id)
+            await self._get_graph().aupdate_state(
+                {"configurable": {"thread_id": thread_id}},
+                {
+                    "execution_status": "failed",
+                    "failure_reason": type(exc).__name__,
+                    "errors": [f"resume: {type(exc).__name__}"],
+                },
+            )
+        finally:
+            await self._project(thread_id, user_id)
 
-        await repository.finalize(response.intervention_id)
-        values = await self._get_state_values(thread_id)
-        await self._sync_pending_intervention(thread_id, values)
-        result = self._format_result(values, values.get("request_id", ""), thread_id)
-        # The token is deliberately excluded from latest_payload, but must be
-        # returned so the client can safely continue through a second HITL gate.
-        result["workflow_token"] = response.workflow_token
-        await self._persist_result(thread_id, user_id, result)
+    async def get_trip_status(self, thread_id: str, user_id: str) -> dict:
+        await self._product().require_thread(thread_id, user_id)
+        snapshot = await self._get_snapshot(thread_id)
+        status = derive_status(snapshot.values, list(snapshot.next))
+        return {
+            "thread_id": thread_id,
+            "status": status,
+            "next": list(snapshot.next),
+            "failure_reason": snapshot.values.get("failure_reason"),
+            "errors": snapshot.values.get("errors", []),
+            "human_intervention": snapshot.values.get("human_intervention", {}),
+        }
+
+    async def retry_resume(self, thread_id: str, user_id: str) -> dict:
+        await self._product().require_thread(thread_id, user_id)
+        snapshot = await self._get_snapshot(thread_id)
+        if derive_status(snapshot.values, list(snapshot.next)) != "failed":
+            raise InvalidResponse("Only failed workflows can be retried")
+        if not snapshot.next:
+            raise InvalidResponse("This workflow has no resumable work")
+        await self._get_graph().aupdate_state(
+            {"configurable": {"thread_id": thread_id}},
+            {"execution_status": "resuming", "failure_reason": ""},
+        )
+        task = asyncio.create_task(self._run_retry(thread_id, user_id))
+        self._resumes[thread_id] = task
+        task.add_done_callback(lambda done: self._resume_done(thread_id, done))
+        result = await self._project(thread_id, user_id)
+        result["status"] = "resuming"
         return result
+
+    async def _run_retry(self, thread_id: str, user_id: str) -> None:
+        try:
+            await self._get_graph().ainvoke(
+                None, config={"configurable": {"thread_id": thread_id}}
+            )
+        except Exception as exc:
+            log.exception("retry failed thread=%s", thread_id)
+            await self._get_graph().aupdate_state(
+                {"configurable": {"thread_id": thread_id}},
+                {"execution_status": "failed", "failure_reason": type(exc).__name__,
+                 "errors": [f"retry: {type(exc).__name__}"]},
+            )
+        finally:
+            await self._project(thread_id, user_id)
+
+    async def reopen_intervention(self, thread_id: str, user_id: str) -> dict:
+        await self._product().require_thread(thread_id, user_id)
+        snapshot = await self._get_snapshot(thread_id)
+        values = snapshot.values
+        card = itinerary_card_from(values.get("itinerary", ""))
+        if not itinerary_is_valid(card, values.get("trip_constraints", {})):
+            raise InvalidResponse("This itinerary is no longer valid for review")
+        current = values.get("human_intervention", {})
+        expired = False
+        if current.get("expires_at"):
+            try:
+                expired = datetime.fromisoformat(current["expires_at"]) <= datetime.now(UTC)
+            except ValueError:
+                expired = True
+        current_status = derive_status(values, list(snapshot.next))
+        if not expired and current_status != "failed":
+            raise InvalidResponse("This review cannot be reopened in its current state")
+        if current.get("status") == "pending" and not expired:
+            raise InvalidResponse("This review is already open")
+        version = values.get("hitl_version", 0) + 1
+        weather = weather_card_from(values.get("weather_results", ""))
+        intervention = create_intervention(
+            "itinerary_review",
+            version=version,
+            allowed_actions=["accept", "modify", "regenerate"],
+            context={
+                "itinerary_summary": card.summary[:400],
+                "itinerary_days": [
+                    {"day": day.day, "title": day.title, "summary": day.summary[:240],
+                     "stops": [stop.title for stop in day.stops[:5]]}
+                    for day in card.days[:14]
+                ],
+                "weather_preview": " · ".join(
+                    part for part in (weather.headline, weather.metric, weather.summary) if part
+                )[:500],
+            },
+            itinerary_version=values.get("itinerary_version", 0),
+        )
+        await self._get_graph().aupdate_state(
+            {"configurable": {"thread_id": thread_id}},
+            {"human_intervention": intervention, "hitl_version": version,
+             "execution_status": "awaiting_human", "failure_reason": ""},
+        )
+        return await self._project(thread_id, user_id)
 
     def _revision_query(self, values: dict, query: str) -> str:
         constraints = values.get("trip_constraints") or {}
@@ -402,21 +622,14 @@ class TravelService:
         )
         graph = self._get_graph()
         request_id = uuid.uuid4().hex
-        workflow_token, token_hash = self._new_workflow_token()
         config = self._config(thread_id=thread_id, request_id=request_id)
         state = self._initial_state(
-            self._revision_query(values, query), request_id, token_hash
+            self._revision_query(values, query), request_id
         )
         state["trip_constraints"] = values.get("trip_constraints") or {}
         state["user_preferences"] = values.get("user_preferences") or {}
         await graph.ainvoke(state, config=config)
-        result = await self.get_trip(thread_id, user_id, prefer_persisted=False)
-        await self._sync_pending_intervention(
-            thread_id, await self._get_state_values(thread_id)
-        )
-        result["workflow_token"] = workflow_token
-        await self._persist_result(thread_id, user_id, result)
-        return result
+        return await self._project(thread_id, user_id, add_message=True)
 
     async def stream_continue(self, thread_id: str, query: str, user_id: str):
         owned = await self._product().require_thread(thread_id, user_id)
@@ -430,11 +643,10 @@ class TravelService:
             kind="user",
         )
         request_id = uuid.uuid4().hex
-        workflow_token, token_hash = self._new_workflow_token()
         graph = self._get_graph()
         config = self._config(thread_id=thread_id, request_id=request_id)
         state = self._initial_state(
-            self._revision_query(values, query), request_id, token_hash
+            self._revision_query(values, query), request_id
         )
         state["trip_constraints"] = values.get("trip_constraints") or {}
         state["user_preferences"] = values.get("user_preferences") or {}
@@ -444,7 +656,6 @@ class TravelService:
             "data": {
                 "request_id": request_id,
                 "thread_id": thread_id,
-                "workflow_token": workflow_token,
                 "conversation_id": str(owned["conversation_id"]),
                 "trip_id": str(owned["trip_id"]),
             },
@@ -457,12 +668,7 @@ class TravelService:
                     "data": {"node": node_name, "status": "completed"},
                 }
 
-        result = await self.get_trip(thread_id, user_id, prefer_persisted=False)
-        await self._sync_pending_intervention(
-            thread_id, await self._get_state_values(thread_id)
-        )
-        result["workflow_token"] = workflow_token
-        await self._persist_result(thread_id, user_id, result)
+        result = await self._project(thread_id, user_id, add_message=True)
         yield {
             "event": (
                 "awaiting_human"

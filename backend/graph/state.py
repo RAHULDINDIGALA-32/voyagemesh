@@ -1,15 +1,23 @@
-from operator import add
 from typing import Annotated, TypedDict
+
+RESET = "__reset__"
+
+
+def append_or_reset(old: list | None, new: list | None) -> list:
+    values = new or []
+    if values and values[0] == RESET:
+        return values[1:]
+    return (old or []) + values
+
 
 class TravelState(TypedDict, total=False):
     # Request
     user_query: str
     request_id: str
-    workflow_token_hash: str
     trip_constraints: dict[str, str]
     selected_agents: list[str]
     supervisor_reasoning: str
-    completed_agents: Annotated[list[str], add]
+    completed_agents: Annotated[list[str], append_or_reset]
     request_blocked: bool
     blocked_reason: str
     execution_status: str
@@ -42,4 +50,6 @@ class TravelState(TypedDict, total=False):
     timeline: dict
 
     # Operational Status
-    errors: Annotated[list[str], add]
+    errors: Annotated[list[str], append_or_reset]
+    itinerary_attempts: int
+    failure_reason: str

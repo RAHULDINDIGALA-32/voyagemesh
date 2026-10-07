@@ -9,7 +9,12 @@ from agents.budget import budget_agent as run_budget
 from agents.supervisor import supervisor_agent as run_supervisor
 from guardrails.input import validate_input
 from guardrails.output import validate_output
-from agents.structured import itinerary_preview, weather_card_from
+from agents.structured import (
+    itinerary_card_from,
+    itinerary_preview,
+    itinerary_is_valid,
+    weather_card_from,
+)
 from hitl.contracts import (
     budget_conflict,
     create_intervention,
@@ -133,8 +138,21 @@ async def budget_decision_gate(state: dict) -> dict:
 async def final_review_gate(state: dict) -> dict:
     """Request user review for a usable itinerary before final synthesis."""
     itinerary = state.get("itinerary", "").strip()
-    if not itinerary or "currently unavailable" in itinerary.lower():
-        return {}
+    card = itinerary_card_from(itinerary)
+    if not itinerary_is_valid(card, state.get("trip_constraints", {})):
+        attempts = state.get("itinerary_attempts", 0)
+        if attempts < 2:
+            return {
+                "rerun_agents": ["itinerary_agent"],
+                "itinerary_attempts": attempts + 1,
+                "errors": ["itinerary: invalid_output"],
+                "execution_status": "running",
+            }
+        return {
+            "execution_status": "failed",
+            "failure_reason": "itinerary_invalid",
+            "errors": ["itinerary: exhausted_retries"],
+        }
     version = state.get("hitl_version", 0) + 1
     itinerary_version = state.get("itinerary_version", 0) + 1
     weather = weather_card_from(state.get("weather_results", ""))
@@ -146,6 +164,16 @@ async def final_review_gate(state: dict) -> dict:
             part for part in (weather.headline, weather.metric, weather.summary) if part
         )[:500],
         "itinerary_preview": itinerary_preview(itinerary),
+        "itinerary_summary": card.summary[:400],
+        "itinerary_days": [
+            {
+                "day": day.day,
+                "title": day.title,
+                "summary": day.summary[:240],
+                "stops": [stop.title for stop in day.stops[:5]],
+            }
+            for day in card.days[:14]
+        ],
     }
     return {
         "hitl_version": version,
@@ -165,8 +193,8 @@ def _complete(node_name: str, update: dict, state: dict) -> dict:
     """Record finished specialists for supervisor-driven dynamic routing."""
     result = {**update, "completed_agents": [node_name]}
     rerun_agents = state.get("rerun_agents", [])
-    if rerun_agents and rerun_agents[0] == node_name:
-        result["rerun_agents"] = rerun_agents[1:]
+    if node_name in rerun_agents:
+        result["rerun_agents"] = [agent for agent in rerun_agents if agent != node_name]
     return result
 
 

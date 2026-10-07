@@ -341,6 +341,8 @@ export function VoyageDocument({
   const stopRefs = useRef<Array<HTMLDivElement | null>>([]);
 
   const setStop = (index: number) => (el: HTMLDivElement | null) => {
+    // Callback refs are intentionally collected for route measurement.
+    // eslint-disable-next-line react-hooks/refs
     stopRefs.current[index] = el;
   };
 
@@ -486,6 +488,7 @@ export function VoyageDocument({
   }, [layout?.key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const expanded = isItineraryExpanded(itinerary?.days);
+  const incompleteItinerary = payload.status === "completed" && !itinerary?.days?.length;
 
   return (
     <article className="mx-auto max-w-6xl px-4 pb-32 pt-8 sm:px-8 sm:pb-40 sm:pt-10">
@@ -517,6 +520,12 @@ export function VoyageDocument({
         </Stamp>
         */}
       </header>
+
+      {incompleteItinerary ? (
+        <div className="mb-8 border border-danger/40 bg-paper-raised p-4 text-sm text-danger">
+          This voyage completed without a usable itinerary. Please return to the chat and retry the workflow.
+        </div>
+      ) : null}
 
       <div className="mb-10 flex flex-wrap gap-2">
         {conversationId ? (

@@ -8,8 +8,9 @@ from fastapi.responses import StreamingResponse
 
 from api.auth import AuthUser, get_current_user
 from api.dependencies import get_travel_service
-from api.schemas import FollowUpRequest, HumanResponseRequest, TripRequest, TripResponse
-from hitl.contracts import HumanResponseRequest as ValidatedHumanResponseRequest
+from api.schemas import FollowUpRequest, TripRequest, TripResponse
+from hitl.contracts import HumanResponseRequest
+from hitl.errors import HitlError
 from services.travel_service import TravelService
 
 
@@ -120,6 +121,42 @@ async def continue_trip(
     )
 
 
+@router.get("/{thread_id}/status")
+async def trip_status(
+    thread_id: str,
+    user: AuthUser = Depends(get_current_user),
+    service: TravelService = Depends(get_travel_service),
+):
+    try:
+        return await service.get_trip_status(thread_id, str(user.id))
+    except HitlError as exc:
+        raise HTTPException(status_code=exc.http_status, detail={"code": exc.code, "detail": exc.detail}) from exc
+
+
+@router.post("/{thread_id}/retry", response_model=TripResponse)
+async def retry_trip(
+    thread_id: str,
+    user: AuthUser = Depends(get_current_user),
+    service: TravelService = Depends(get_travel_service),
+):
+    try:
+        return await service.retry_resume(thread_id, str(user.id))
+    except HitlError as exc:
+        raise HTTPException(status_code=exc.http_status, detail={"code": exc.code, "detail": exc.detail, "recoverable": exc.recoverable}) from exc
+
+
+@router.post("/{thread_id}/interventions/reopen", response_model=TripResponse)
+async def reopen_intervention(
+    thread_id: str,
+    user: AuthUser = Depends(get_current_user),
+    service: TravelService = Depends(get_travel_service),
+):
+    try:
+        return await service.reopen_intervention(thread_id, str(user.id))
+    except HitlError as exc:
+        raise HTTPException(status_code=exc.http_status, detail={"code": exc.code, "detail": exc.detail, "recoverable": exc.recoverable}) from exc
+
+
 @router.get(
     "/{thread_id}",
     response_model=TripResponse,
@@ -138,11 +175,8 @@ async def get_trip(
     try:
         return await service.get_trip(thread_id, str(user.id))
 
-    except LookupError as exc:
-        raise HTTPException(
-            status_code=404,
-            detail="Trip not found",
-        ) from exc
+    except HitlError as exc:
+        raise HTTPException(status_code=exc.http_status, detail={"code": exc.code, "detail": exc.detail}) from exc
 
 
 @router.post("/{thread_id}/interventions", response_model=TripResponse)
@@ -156,26 +190,24 @@ async def respond_to_intervention(
         raise HTTPException(status_code=400, detail="Invalid thread ID")
 
     try:
-        validated_payload = ValidatedHumanResponseRequest.model_validate(
-            payload.model_dump()
-        )
         return await service.respond_to_intervention(
-            thread_id, validated_payload, str(user.id)
+            thread_id, payload, str(user.id)
         )
-    except PermissionError as exc:
-        raise HTTPException(status_code=403, detail="Invalid workflow token") from exc
-    except TimeoutError as exc:
-        raise HTTPException(status_code=410, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except LookupError as exc:
-        raise HTTPException(status_code=404, detail="Intervention not found") from exc
-    except RuntimeError as exc:
-        logger.exception("Unable to resume HITL workflow")
-        raise HTTPException(status_code=409, detail="Intervention is currently being processed") from exc
+    except HitlError as exc:
+        raise HTTPException(
+            status_code=exc.http_status,
+            detail={
+                "code": exc.code,
+                "detail": exc.detail,
+                "recoverable": exc.recoverable,
+            },
+        ) from exc
     except Exception as exc:
         logger.exception("HITL workflow resumption failed")
-        raise HTTPException(status_code=502, detail="Unable to resume travel planning workflow") from exc
+        raise HTTPException(
+            status_code=502,
+            detail={"code": "resume_failed", "detail": "Unable to resume travel planning workflow", "recoverable": True},
+        ) from exc
 
 
 @router.get("/{thread_id}/state")

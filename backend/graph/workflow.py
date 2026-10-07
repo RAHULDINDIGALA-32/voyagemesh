@@ -84,9 +84,11 @@ def route_after_budget(state: TravelState) -> Literal["human_interaction", "flig
     return select_next_agent(state)  # type: ignore[return-value]
 
 
-def route_after_itinerary(state: TravelState) -> Literal["human_interaction", "final_agent"]:
+def route_after_itinerary(state: TravelState) -> Literal["human_interaction", "final_agent", "itinerary_agent"]:
     if state.get("human_intervention", {}).get("status") == "pending":
         return "human_interaction"
+    if state.get("rerun_agents"):
+        return select_next_agent(state)  # type: ignore[return-value]
     return "final_agent"
 
 

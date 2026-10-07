@@ -54,10 +54,19 @@ class FakeTripGraph:
 
     async def aget_state(self, *_args, **_kwargs):
         return SimpleNamespace(
+            next=(),
             values={
                 "request_id": "request_1",
                 "execution_status": "awaiting_human",
-                "human_intervention": {},
+                "human_intervention": {
+                    "status": "pending",
+                    "type": "itinerary_review",
+                    "intervention_id": "hitl_00000000000000000000000000000000",
+                    "version": 1,
+                    "created_at": "2026-01-01T00:00:00+00:00",
+                    "expires_at": "2099-01-01T00:00:00+00:00",
+                    "allowed_actions": ["accept"],
+                },
                 "trip_constraints": {
                     "destination": "Tokyo",
                     "travel_dates": "2026-12-10/2026-12-14",
@@ -81,7 +90,7 @@ class SupervisorWorkflowTests(unittest.IsolatedAsyncioTestCase):
             "hotel_agent",
         )
 
-    async def test_initial_stream_returns_workflow_token_for_hitl_resume(self):
+    async def test_initial_stream_does_not_require_a_workflow_token(self):
         service = TravelService()
         service.database = SimpleNamespace(
             product_repository=FakeTripProduct(),
@@ -100,13 +109,10 @@ class SupervisorWorkflowTests(unittest.IsolatedAsyncioTestCase):
         ]
 
         self.assertEqual(events[0]["event"], "started")
-        self.assertTrue(events[0]["data"]["workflow_token"])
+        self.assertNotIn("workflow_token", events[0]["data"])
         terminal = events[-1]
         self.assertEqual(terminal["event"], "awaiting_human")
-        self.assertEqual(
-            terminal["data"]["workflow_token"],
-            events[0]["data"]["workflow_token"],
-        )
+        self.assertNotIn("workflow_token", terminal["data"])
 
     async def test_async_dynamic_workflow_persists_state(self):
         supervisor_llm = FakeLlm(
@@ -289,7 +295,9 @@ class SupervisorWorkflowTests(unittest.IsolatedAsyncioTestCase):
             {"action": "modify", "data": {"preference": "more_free_time"}},
         )
         stale = valid.model_copy(update={"expected_version": 2})
-        with self.assertRaisesRegex(ValueError, "stale"):
+        from hitl.errors import StaleIntervention
+
+        with self.assertRaisesRegex(StaleIntervention, "stale"):
             validate_human_response(intervention, stale)
 
 
