@@ -300,6 +300,7 @@ class TravelService:
     def _initial_state(query: str, request_id: str) -> dict:
         return {
             "user_query": query,
+            "guardrail_query": query,
             "request_id": request_id,
             "trip_constraints": {},
             "selected_agents": [],
@@ -328,10 +329,15 @@ class TravelService:
 
     @classmethod
     def _continuation_state(
-        cls, values: dict[str, Any], query: str, request_id: str
+        cls,
+        values: dict[str, Any],
+        query: str,
+        request_id: str,
+        guardrail_query: str,
     ) -> dict[str, Any]:
         """Build a new run without discarding the existing voyage document."""
         state = cls._initial_state(query, request_id)
+        state["guardrail_query"] = guardrail_query
         for key in (
             "trip_constraints",
             "user_preferences",
@@ -792,7 +798,7 @@ class TravelService:
         request_id = uuid.uuid4().hex
         config = self._config(thread_id=thread_id, request_id=request_id)
         state = self._continuation_state(
-            values, self._revision_query(values, query), request_id
+            values, self._revision_query(values, query), request_id, query
         )
         await graph.ainvoke(state, config=config)
         return await self._project(thread_id, user_id, add_message=True)
@@ -814,7 +820,7 @@ class TravelService:
         graph = self._get_graph()
         config = self._config(thread_id=thread_id, request_id=request_id)
         state = self._continuation_state(
-            values, self._revision_query(values, query), request_id
+            values, self._revision_query(values, query), request_id, query
         )
 
         yield {

@@ -14,8 +14,23 @@ import { useAccessToken } from "@/lib/hooks/useAccessToken";
 import { pickGreeting } from "@/lib/studio/greetings";
 import type { ChatMessage, TripPayload } from "@/types/trip";
 
+const STAGE_LABELS: Record<string, string> = {
+  input_guardrail: "Input guardrails",
+  supervisor_agent: "Supervisor",
+  constraint_gate: "Constraint check",
+  flight_agent: "Flight research",
+  hotel_agent: "Hotel research",
+  weather_agent: "Weather research",
+  budget_agent: "Budget analysis",
+  itinerary_agent: "Itinerary planning",
+  budget_decision_gate: "Budget review",
+  final_review_gate: "Itinerary review",
+  final_agent: "Preparing your voyage",
+  output_guardrail: "Final checks",
+};
+
 function agentLabel(node: string) {
-  return node.replaceAll("_", " ");
+  return STAGE_LABELS[node] ?? node.replaceAll("_", " ");
 }
 
 export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
@@ -105,8 +120,14 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
 
     try {
       const handle = (event: { event: string; data: Record<string, unknown> }) => {
+        if (event.event === "started") {
+          setProgress(["input_guardrail"]);
+        }
         if (event.event === "progress" && typeof event.data.node === "string") {
-          setProgress((current) => [...current, event.data.node as string]);
+          const node = event.data.node as string;
+          setProgress((current) =>
+            current[current.length - 1] === node ? current : [...current, node],
+          );
         }
         if (typeof event.data.thread_id === "string") {
           activeThreadRef.current = event.data.thread_id;
@@ -294,7 +315,22 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
                 ),
               )}
 
-              {progress.length > 0 && busy ? (
+              {busy ? (
+                <div className="mt-5 flex items-center gap-3 px-1 py-1 text-sm text-ink-soft">
+                  <CompassMark size={18} animated />
+                  <span className="progress-shimmer font-mono text-[12px] tracking-[0.02em]">
+                    {agentLabel(progress[progress.length - 1] ?? "input_guardrail")}
+                  </span>
+                  <span className="flex items-center gap-1 text-brass" aria-hidden="true">
+                    <span className="h-1 w-1 animate-pulse rounded-full bg-current" />
+                    <span className="h-1 w-1 animate-pulse rounded-full bg-current [animation-delay:180ms]" />
+                    <span className="h-1 w-1 animate-pulse rounded-full bg-current [animation-delay:360ms]" />
+                  </span>
+                  <span className="sr-only">Planning is in progress</span>
+                </div>
+              ) : null}
+
+              {false && progress.length > 0 && busy ? (
                 <p className="font-mono text-[11px] tracking-wide text-steel">
                   {progress.map(agentLabel).join(" → ")}
                 </p>

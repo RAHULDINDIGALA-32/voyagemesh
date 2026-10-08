@@ -54,7 +54,7 @@ def _extract_json(content: object) -> str:
 def deterministic_input_check(query: str) -> GuardrailDecision:
     """Perform non-bypassable, low-false-positive validation."""
     normalized = query.strip()
-    print(f"\n\nDeterministic input check: {normalized}\n\n")
+    # print(f"\n\nDeterministic input check: {normalized}\n\n")
     if not normalized or len(normalized) > MAX_QUERY_LENGTH:
         return GuardrailDecision(
             False, "invalid", "The request is empty or too long.", "deterministic"

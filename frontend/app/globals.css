@@ -75,12 +75,51 @@ body {
   }
 }
 
+@keyframes compass-mark-active {
+  0%,
+  100% {
+    opacity: 0.72;
+    transform: rotate(0deg) scale(0.92);
+  }
+  50% {
+    opacity: 1;
+    transform: rotate(45deg) scale(1);
+  }
+}
+
+@keyframes progress-shimmer {
+  from { background-position: 120% 0; }
+  to { background-position: -80% 0; }
+}
+
+.compass-mark-active {
+  transform-origin: center;
+  animation: compass-mark-active 1.8s ease-in-out infinite;
+}
+
+.progress-shimmer {
+  background: linear-gradient(
+    100deg,
+    var(--ink-soft) 0%,
+    var(--ink) 35%,
+    var(--brass) 50%,
+    var(--ink-soft) 68%
+  );
+  background-size: 220% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: progress-shimmer 2.4s ease-in-out infinite;
+}
+
 .suggest-row {
   animation: suggest-in 480ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .suggest-row {
+  .suggest-row,
+  .compass-mark-active,
+  .progress-shimmer {
     animation: none;
   }
 }

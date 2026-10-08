@@ -25,7 +25,9 @@ from langgraph.types import interrupt
 
 
 async def input_guardrail(state: dict) -> dict:
-    decision = await validate_input(state["user_query"])
+    decision = await validate_input(
+        state.get("guardrail_query") or state["user_query"]
+    )
     update = {
         "input_guardrail": decision.as_state(),
         "request_blocked": not decision.allowed,

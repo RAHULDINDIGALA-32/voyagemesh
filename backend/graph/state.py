@@ -13,6 +13,10 @@ def append_or_reset(old: list | None, new: list | None) -> list:
 class TravelState(TypedDict, total=False):
     # Request
     user_query: str
+    # Raw user turn used for input safety validation. Follow-up planning may
+    # enrich user_query with internal voyage context, which must not count
+    # toward the user-input length guardrail.
+    guardrail_query: str
     request_id: str
     trip_constraints: dict[str, str]
     selected_agents: list[str]
