@@ -35,7 +35,7 @@ export function HitlCard({
 }: {
   token: string;
   payload: TripPayload;
-  onResolved: (next: TripPayload) => void;
+  onResolved: (next: TripPayload, action?: string) => void;
 }) {
   const intervention = payload.human_intervention;
   const [error, setError] = useState<string | null>(null);
@@ -68,7 +68,7 @@ export function HitlCard({
           data,
         },
       );
-      onResolved(next);
+      onResolved(next, action);
       if (next.status === "resuming") {
         await waitForResume(token, payload.thread_id, onResolved);
       }
@@ -136,7 +136,7 @@ export function HitlCard({
   return (
     <section className="my-6 max-w-xl border border-rule bg-paper-raised p-4">
       <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-brass">
-        Human review · {intervention.type?.replaceAll("_", " ")}
+        User Review · {intervention.type?.replaceAll("_", " ")}
       </p>
       <p className="mt-2 text-sm leading-relaxed">{intervention.question}</p>
 

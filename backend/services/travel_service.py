@@ -1,4 +1,5 @@
 import asyncio
+from copy import deepcopy
 import logging
 import uuid
 from datetime import UTC, datetime
@@ -150,6 +151,67 @@ class TravelService:
             assistant_content=self._assistant_copy(result) if add_message else None,
         )
 
+    @staticmethod
+    def _is_empty(value: Any) -> bool:
+        return value is None or value == "" or value == {} or value == []
+
+    @classmethod
+    def _merge_payload(cls, previous: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:
+        """Preserve completed voyage sections during partial follow-up runs.
+
+        Follow-ups intentionally rerun only the requested work. LangGraph state
+        updates can therefore contain empty values for sections that were not
+        part of that run. Empty values must not erase a previously persisted
+        section, while non-empty current values remain authoritative.
+        """
+        mergeable = {
+            "answer",
+            "flight_results",
+            "hotel_results",
+            "weather_results",
+            "budget_analysis",
+            "itinerary",
+            "trip_document",
+            "trip_summary",
+            "flight_details",
+            "hotel_details",
+            "weather_details",
+            "budget_details",
+            "itinerary_details",
+            "packing_list",
+            "timeline",
+            "trip_constraints",
+            "user_preferences",
+        }
+
+        def merge_value(old: Any, new: Any) -> Any:
+            if isinstance(old, dict) and isinstance(new, dict):
+                merged = deepcopy(old)
+                for key, value in new.items():
+                    if key in merged:
+                        merged[key] = merge_value(merged[key], value)
+                    elif not cls._is_empty(value):
+                        merged[key] = deepcopy(value)
+                return merged
+            if cls._is_empty(new) and not cls._is_empty(old):
+                return deepcopy(old)
+            return deepcopy(new)
+
+        merged = deepcopy(previous)
+        for key, value in current.items():
+            if key in mergeable and key in previous:
+                merged[key] = merge_value(previous[key], value)
+            else:
+                merged[key] = deepcopy(value)
+        return merged
+
+    async def _merge_with_latest(
+        self, thread_id: str, user_id: str, result: dict[str, Any]
+    ) -> dict[str, Any]:
+        record = await self._product().require_thread(thread_id, user_id)
+        previous = record.get("latest_payload") or {}
+        return self._merge_payload(previous, result)
+
     def _get_graph(self) -> CompiledStateGraph:
         if self.graph is None:
             raise RuntimeError("Travel service is not initialized")
@@ -263,6 +325,40 @@ class TravelService:
             "trip_document": {},
             "errors": ["__reset__"],
         }
+
+    @classmethod
+    def _continuation_state(
+        cls, values: dict[str, Any], query: str, request_id: str
+    ) -> dict[str, Any]:
+        """Build a new run without discarding the existing voyage document."""
+        state = cls._initial_state(query, request_id)
+        for key in (
+            "trip_constraints",
+            "user_preferences",
+            "flight_results",
+            "hotel_results",
+            "weather_results",
+            "budget_analysis",
+            "itinerary",
+            "trip_document",
+            "trip_summary",
+            "flight_details",
+            "hotel_details",
+            "weather_details",
+            "budget_details",
+            "itinerary_details",
+            "packing_list",
+            "timeline",
+        ):
+            if key in values:
+                state[key] = deepcopy(values[key])
+        # A follow-up is a fresh request, but it is still based on this voyage.
+        # These fields must not carry a prior pause or terminal status forward.
+        state["human_intervention"] = {}
+        state["human_response"] = {}
+        state["execution_status"] = "running"
+        state["failure_reason"] = ""
+        return state
 
     async def _sync_pending_intervention(self, thread_id: str, values: dict) -> None:
         intervention = values.get("human_intervention", {})
@@ -413,6 +509,7 @@ class TravelService:
             thread_id,
             list(snapshot.next),
         )
+        result = await self._merge_with_latest(thread_id, user_id, result)
         await self._sync_pending_intervention(thread_id, snapshot.values)
         await self._persist_result(thread_id, user_id, result, add_message=add_message)
         log.info("projection written thread=%s status=%s", thread_id, result["status"])
@@ -572,7 +669,9 @@ class TravelService:
                 },
             )
         finally:
-            await self._project(thread_id, user_id)
+            # Persist the resumed chart message as well as the latest payload so
+            # chat clients do not need a refresh to reconstruct the final turn.
+            await self._project(thread_id, user_id, add_message=True)
 
     async def get_trip_status(self, thread_id: str, user_id: str) -> dict:
         await self._product().require_thread(thread_id, user_id)
@@ -618,7 +717,7 @@ class TravelService:
                  "errors": [f"retry: {type(exc).__name__}"]},
             )
         finally:
-            await self._project(thread_id, user_id)
+            await self._project(thread_id, user_id, add_message=True)
 
     async def reopen_intervention(self, thread_id: str, user_id: str) -> dict:
         await self._product().require_thread(thread_id, user_id)
@@ -678,7 +777,9 @@ class TravelService:
 
     async def continue_trip(self, thread_id: str, query: str, user_id: str) -> dict:
         owned = await self._product().require_thread(thread_id, user_id)
-        values = await self._get_state_values(thread_id)
+        values = self._merge_payload(
+            owned.get("latest_payload") or {}, await self._get_state_values(thread_id)
+        )
         if values.get("execution_status") == "awaiting_human":
             raise RuntimeError("This voyage is waiting for a chart-room decision")
         await self._product().add_message(
@@ -690,17 +791,17 @@ class TravelService:
         graph = self._get_graph()
         request_id = uuid.uuid4().hex
         config = self._config(thread_id=thread_id, request_id=request_id)
-        state = self._initial_state(
-            self._revision_query(values, query), request_id
+        state = self._continuation_state(
+            values, self._revision_query(values, query), request_id
         )
-        state["trip_constraints"] = values.get("trip_constraints") or {}
-        state["user_preferences"] = values.get("user_preferences") or {}
         await graph.ainvoke(state, config=config)
         return await self._project(thread_id, user_id, add_message=True)
 
     async def stream_continue(self, thread_id: str, query: str, user_id: str):
         owned = await self._product().require_thread(thread_id, user_id)
-        values = await self._get_state_values(thread_id)
+        values = self._merge_payload(
+            owned.get("latest_payload") or {}, await self._get_state_values(thread_id)
+        )
         if values.get("execution_status") == "awaiting_human":
             raise RuntimeError("This voyage is waiting for a chart-room decision")
         await self._product().add_message(
@@ -712,11 +813,9 @@ class TravelService:
         request_id = uuid.uuid4().hex
         graph = self._get_graph()
         config = self._config(thread_id=thread_id, request_id=request_id)
-        state = self._initial_state(
-            self._revision_query(values, query), request_id
+        state = self._continuation_state(
+            values, self._revision_query(values, query), request_id
         )
-        state["trip_constraints"] = values.get("trip_constraints") or {}
-        state["user_preferences"] = values.get("user_preferences") or {}
 
         yield {
             "event": "started",

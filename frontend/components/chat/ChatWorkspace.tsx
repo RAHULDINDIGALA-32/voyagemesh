@@ -27,6 +27,7 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
   const [busy, setBusy] = useState(false);
   const [livePayload, setLivePayload] = useState<TripPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [hitlSubmitted, setHitlSubmitted] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<AbortController | null>(null);
   const activeThreadRef = useRef<string | null>(null);
@@ -51,14 +52,18 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
       setLivePayload(null);
       setProgress([]);
       setError(null);
+      setHitlSubmitted(false);
     }, 0);
     return () => window.clearTimeout(reset);
   }, [conversationId]);
 
   const messages = useMemo(() => {
     const persisted = conversation.data?.messages ?? [];
-    const seen = new Set(persisted.map((item) => item.content + item.created_at));
-    const extras = localMessages.filter((item) => !seen.has(item.content + item.created_at));
+    // Local HITL/final messages are added before the persistence refresh
+    // completes. Match by role and content so the subsequent server refresh
+    // replaces the optimistic copy instead of rendering it twice.
+    const seen = new Set(persisted.map((item) => `${item.role}:${item.content}`));
+    const extras = localMessages.filter((item) => !seen.has(`${item.role}:${item.content}`));
     return [...persisted, ...extras];
   }, [conversation.data?.messages, localMessages]);
 
@@ -67,7 +72,8 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
   //const weatherLine = [document?.weather?.metric, document?.weather?.summary]
     //.filter((part) => part?.trim())
     //.join(" · ");
-  const interventionPending = payload?.human_intervention?.status === "pending";
+  const interventionPending =
+    payload?.human_intervention?.status === "pending" && !hitlSubmitted;
   const interventionResuming = payload?.status === "resuming";
   const greeting = useMemo(() => pickGreeting(fullName), [fullName]);
   const isFresh = !conversationId && messages.length === 0 && !busy;
@@ -189,6 +195,39 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
 
   if (!ready) return null;
 
+  function handleHitlResolved(next: TripPayload, action?: string) {
+    setLivePayload(next);
+    if (action) {
+      setHitlSubmitted(true);
+      setLocalMessages((current) => [
+        ...current,
+        {
+          id: crypto.randomUUID(),
+          conversation_id: next.conversation_id ?? conversationId ?? "pending",
+          role: "assistant",
+          content: `Decision recorded: ${action.replaceAll("_", " ")}. I’m updating your Voyage Chart now.`,
+          kind: "hitl_action",
+          created_at: new Date().toISOString(),
+        },
+      ]);
+    } else {
+      setHitlSubmitted(false);
+      if (next.status !== "resuming" && next.answer) {
+        setLocalMessages((current) => [
+          ...current,
+          {
+            id: crypto.randomUUID(),
+            conversation_id: next.conversation_id ?? conversationId ?? "pending",
+            role: "assistant",
+            content: next.answer ?? "",
+            kind: "assistant",
+            created_at: new Date().toISOString(),
+          },
+        ]);
+      }
+    }
+  }
+
   const composer = (
     <Composer
       variant={isFresh ? "hero" : "dock"}
@@ -275,8 +314,8 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
                 <HitlCard
                   token={token}
                   payload={payload}
-                  onResolved={async (next) => {
-                    setLivePayload(next);
+                  onResolved={async (next, action) => {
+                    handleHitlResolved(next, action);
                     await queryClient.invalidateQueries({ queryKey: ["conversations"] });
                     await queryClient.invalidateQueries({ queryKey: ["conversation"] });
                     await queryClient.invalidateQueries({ queryKey: ["trip"] });
