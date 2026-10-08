@@ -1,7 +1,7 @@
 # from tools.tavily import tavily_search
 # from tools.flight import search_flights
 # from backend.system_iter_01.agentic_system import run_travel_agent
-# from agents.flight import flight_agent
+from agents.flight import flight_agent
 from agents.hotel import hotel_agent
 from agents.weather import weather_agent
 from agents.itinerary import itinerary_agent
@@ -40,5 +40,5 @@ state = {
     },
 }
 
-result = asyncio.run(weather_agent(state))
+result = asyncio.run(itinerary_agent(state))
 print(result)

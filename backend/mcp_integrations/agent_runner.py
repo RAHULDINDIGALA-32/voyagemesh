@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextvars import ContextVar
 import json
 import logging
 from typing import Any
@@ -396,18 +397,18 @@ async def _stream_mcp_agent(
     alternate LLM before deciding what to do.
     """
 
-    current_messages = list(messages)
+    # current_messages = list(messages)
 
     async for state in agent.astream(
-        {"messages": current_messages},
-        {
-            "recursion_limit": 2 * max_rounds + 4,
-        },
+        {"messages": list(messages)},
+        {"recursion_limit": 2 * max_rounds + 4},
         stream_mode="values",
     ):
-        current_messages = state["messages"]
+        messages[:] = state["messages"]
+    return messages
 
-    return current_messages
+
+_ACTIVE_JSON_TOOL: ContextVar[StructuredTool] = ContextVar("active_json_tool")
 
 
 async def _final_answer_from_evidence(
@@ -416,7 +417,7 @@ async def _final_answer_from_evidence(
     request: str,
     messages: list,
     llm=None,
-    json_tool=JSON_ANSWER_TOOL,
+    json_tool=None,
 ) -> str:
     """
     Force a final JSON card using whatever research evidence
@@ -426,8 +427,13 @@ async def _final_answer_from_evidence(
     alternate MCP client rather than accidentally hitting the
     already-rate-limited primary client again.
     """
+    json_tool = json_tool or _ACTIVE_JSON_TOOL.get(JSON_ANSWER_TOOL)
 
     evidence_block = evidence_text(messages) or "(no tool results were obtained)"
+
+    # evidence_block = evidence_text(messages)
+    # if not evidence_block:
+    #    raise RuntimeError("no tool evidence gathered")
 
     prompt = [
         SystemMessage(content=system_prompt),
@@ -666,6 +672,7 @@ async def run_mcp_agent(
     """
 
     json_tool = make_json_tool(answer_schema)
+    _ACTIVE_JSON_TOOL.set(json_tool)
     tools = await get_server_tools(server_name)
 
     if tool_names:

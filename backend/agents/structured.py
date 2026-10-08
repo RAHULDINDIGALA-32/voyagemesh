@@ -43,7 +43,20 @@ def clip(text: str, limit: int = 420) -> str:
     return cleaned[: limit - 1].rstrip() + "…"
 
 
-class FlightOption(BaseModel):
+class _Loose(BaseModel):
+    """Tolerant base: numbers become strings, nulls fall back to defaults."""
+
+    model_config = ConfigDict(coerce_numbers_to_str=True, extra="ignore")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_nulls(cls, data):
+        if isinstance(data, dict):
+            return {k: v for k, v in data.items() if v is not None}
+        return data
+
+
+class FlightOption(_Loose):
     airline: str = ""
     flight_number: str = ""
     origin: str = ""
@@ -56,7 +69,7 @@ class FlightOption(BaseModel):
     notes: str = ""
 
 
-class FlightCard(BaseModel):
+class FlightCard(_Loose):
     headline: str = "Flights"
     summary: str = ""
     metric: str = ""
@@ -65,7 +78,7 @@ class FlightCard(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
-class HotelOption(BaseModel):
+class HotelOption(_Loose):
     name: str = ""
     area: str = ""
     nights: str = ""
@@ -75,7 +88,7 @@ class HotelOption(BaseModel):
     source: str = ""
 
 
-class HotelCard(BaseModel):
+class HotelCard(_Loose):
     headline: str = "Hotels"
     summary: str = ""
     metric: str = ""
@@ -84,13 +97,13 @@ class HotelCard(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
-class BudgetLine(BaseModel):
+class BudgetLine(_Loose):
     category: str
     amount: str = ""
     notes: str = ""
 
 
-class BudgetCard(BaseModel):
+class BudgetCard(_Loose):
     headline: str = "Budget"
     summary: str = ""
     metric: str = ""
@@ -102,21 +115,21 @@ class BudgetCard(BaseModel):
     assumptions: list[str] = Field(default_factory=list)
 
 
-class ItineraryStop(BaseModel):
+class ItineraryStop(_Loose):
     time: str = ""
     title: str = ""
     detail: str = ""
     place: str = ""
 
 
-class ItineraryDay(BaseModel):
+class ItineraryDay(_Loose):
     day: str = ""
     title: str = ""
     summary: str = ""
     stops: list[ItineraryStop] = Field(default_factory=list)
 
 
-class ItineraryCard(BaseModel):
+class ItineraryCard(_Loose):
     headline: str = "Itinerary"
     summary: str = ""
     metric: str = ""
@@ -200,19 +213,6 @@ def itinerary_is_valid(card: ItineraryCard, constraints: dict[str, str]) -> bool
     if len(card.days) < required:
         return False
     return all(day.stops or day.summary.strip() for day in card.days)
-
-
-class _Loose(BaseModel):
-    """Tolerant base: numbers become strings, nulls fall back to defaults."""
-
-    model_config = ConfigDict(coerce_numbers_to_str=True, extra="ignore")
-
-    @model_validator(mode="before")
-    @classmethod
-    def _drop_nulls(cls, data):
-        if isinstance(data, dict):
-            return {k: v for k, v in data.items() if v is not None}
-        return data
 
 
 class WeatherDay(_Loose):

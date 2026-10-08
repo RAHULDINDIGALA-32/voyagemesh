@@ -11,6 +11,7 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from config import get_settings
 
 WEATHER_SERVER_PATH = Path(__file__).with_name("weather_server.py")
+FLIGHT_SERVER_PATH = Path(__file__).with_name("aviationstack_server.py")
 
 
 def _subprocess_environment(**updates: str) -> dict[str, str]:
@@ -30,10 +31,10 @@ def get_mcp_client() -> MultiServerMCPClient:
         {
             "aviationstack": {
                 "transport": "stdio",
-                "command": settings.aviationstack_mcp_command,
-                "args": [settings.aviationstack_mcp_package],
+                "command": sys.executable,
+                "args": [str(FLIGHT_SERVER_PATH)],
                 "env": _subprocess_environment(
-                    AVIATION_STACK_API_KEY=settings.aviationstack_key,
+                    AVIATIONSTACK_API_KEY=settings.aviationstack_key,
                 ),
             },
             "tavily": {
