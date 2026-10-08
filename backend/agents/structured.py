@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 from datetime import date
-from typing import Any, Literal
+from typing import Any, Literal, get_origin
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
@@ -44,16 +44,28 @@ def clip(text: str, limit: int = 420) -> str:
 
 
 class _Loose(BaseModel):
-    """Tolerant base: numbers become strings, nulls fall back to defaults."""
+    """Tolerant base: numbers become strings, nulls dropped, "x" -> ["x"] for lists."""
 
     model_config = ConfigDict(coerce_numbers_to_str=True, extra="ignore")
 
     @model_validator(mode="before")
     @classmethod
-    def _drop_nulls(cls, data):
-        if isinstance(data, dict):
-            return {k: v for k, v in data.items() if v is not None}
-        return data
+    def _normalise(cls, data):
+        if not isinstance(data, dict):
+            return data
+        out = {}
+        for key, value in data.items():
+            if value is None:
+                continue
+            field = cls.model_fields.get(key)
+            if (
+                field is not None
+                and get_origin(field.annotation) is list
+                and isinstance(value, str)
+            ):
+                value = [value] if value.strip() else []
+            out[key] = value
+        return out
 
 
 class FlightOption(_Loose):

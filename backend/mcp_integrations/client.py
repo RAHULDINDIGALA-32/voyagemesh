@@ -5,6 +5,7 @@ import sys
 from functools import lru_cache
 from pathlib import Path
 from urllib.parse import urlencode
+from datetime import timedelta
 
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
@@ -39,7 +40,10 @@ def get_mcp_client() -> MultiServerMCPClient:
             },
             "tavily": {
                 "transport": "streamable_http",
-                "url": tavily_url,
+                "url": settings.tavily_mcp_url.rstrip("/") + "/",
+                "headers": {"Authorization": f"Bearer {settings.tavily_key}"},
+                "timeout": timedelta(seconds=30),
+                "sse_read_timeout": timedelta(seconds=60),
             },
             "weather": {
                 "transport": "stdio",
@@ -61,10 +65,12 @@ async def get_server_tools(server_name: str):
         "tavily": ("TAVILY_API_KEY", settings.tavily_key),
         "weather": ("OPENWEATHER_API_KEY", settings.openweather_key),
     }
-    secret_name, secret = required_secrets[server_name]
+    try:
+        secret_name, secret = required_secrets[server_name]
+    except KeyError:
+        raise RuntimeError(f"Unknown MCP server: {server_name}") from None
     if not secret:
         raise RuntimeError(
             f"{secret_name} must be configured for the {server_name} MCP server"
         )
-
     return await get_mcp_client().get_tools(server_name=server_name)
