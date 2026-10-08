@@ -14,9 +14,9 @@ export default function TripsPage() {
   });
 
   return (
-    <main className="h-full overflow-y-auto px-8 py-10">
-      <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-brass">Strip map</p>
-      <h1 className="mt-2 font-display text-4xl">Trips</h1>
+    <main className="mx-auto max-w-6xl px-4 pb-32 pt-8 sm:px-8 sm:pb-40 sm:pt-10">
+  
+      <h1 className="mt-5 font-display text-4xl">Trips</h1>
       <FoldList trips={trips.data ?? []} />
     </main>
   );

@@ -58,6 +58,7 @@ export async function streamTrip(
   accessToken: string,
   query: string,
   onEvent: (event: SseEvent) => void,
+  signal?: AbortSignal,
 ) {
   const response = await fetch(`${apiBase}/api/v1/trips/stream`, {
     method: "POST",
@@ -65,6 +66,7 @@ export async function streamTrip(
       "Content-Type": "application/json",
       Authorization: `Bearer ${accessToken}`,
     },
+    signal,
     body: JSON.stringify({ query }),
   });
   if (!response.ok) {
@@ -80,6 +82,7 @@ export async function streamFollowUp(
   threadId: string,
   query: string,
   onEvent: (event: SseEvent) => void,
+  signal?: AbortSignal,
 ) {
   const response = await fetch(`${apiBase}/api/v1/trips/${threadId}/messages`, {
     method: "POST",
@@ -88,6 +91,7 @@ export async function streamFollowUp(
       Authorization: `Bearer ${accessToken}`,
     },
     body: JSON.stringify({ query }),
+    signal,
   });
   if (!response.ok) {
     const body = await response.json().catch(() => null) as { detail?: unknown } | null;

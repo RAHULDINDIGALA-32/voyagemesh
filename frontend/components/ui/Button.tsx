@@ -1,4 +1,5 @@
 import type { ButtonHTMLAttributes } from "react";
+import { twMerge } from "tailwind-merge";
 
 type Variant = "brass" | "ghost" | "rule";
 
@@ -16,7 +17,11 @@ export function Button({
 }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant }) {
   return (
     <button
-      className={`inline-flex items-center justify-center gap-2 rounded-[3px] px-3.5 py-2 text-[13px] tracking-wide transition-colors disabled:opacity-50 ${styles[variant]} ${className}`}
+      className={twMerge(
+        "inline-flex items-center justify-center gap-2 rounded-[3px] px-3.5 py-2 text-[13px] tracking-wide transition-colors disabled:opacity-50",
+        styles[variant],
+        className
+      )}
       {...props}
     />
   );

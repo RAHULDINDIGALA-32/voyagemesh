@@ -9,7 +9,7 @@ import { Composer } from "@/components/chat/Composer";
 import { HitlCard } from "@/components/chat/HitlCard";
 import { RichText } from "@/components/ui/RichText";
 import { asTripPayload, streamFollowUp, streamTrip } from "@/lib/api/sse";
-import { getConversation, getTrip } from "@/lib/api/trips";
+import { cancelTrip, getConversation, getTrip } from "@/lib/api/trips";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
 import { pickGreeting } from "@/lib/studio/greetings";
 import type { ChatMessage, TripPayload } from "@/types/trip";
@@ -28,6 +28,8 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
   const [livePayload, setLivePayload] = useState<TripPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  const controllerRef = useRef<AbortController | null>(null);
+  const activeThreadRef = useRef<string | null>(null);
 
   const conversation = useQuery({
     queryKey: ["conversation", conversationId, token],
@@ -79,6 +81,9 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
     setBusy(true);
     setError(null);
     setProgress([]);
+    const controller = new AbortController();
+    controllerRef.current = controller;
+    activeThreadRef.current = threadId ?? null;
     setLocalMessages((current) => [
       ...current,
       {
@@ -96,6 +101,9 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
       const handle = (event: { event: string; data: Record<string, unknown> }) => {
         if (event.event === "progress" && typeof event.data.node === "string") {
           setProgress((current) => [...current, event.data.node as string]);
+        }
+        if (typeof event.data.thread_id === "string") {
+          activeThreadRef.current = event.data.thread_id;
         }
         if (event.event === "completed" || event.event === "awaiting_human") {
           const next = asTripPayload(event.data);
@@ -135,9 +143,9 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
       };
 
       if (!threadId) {
-        await streamTrip(token, query, handle);
+        await streamTrip(token, query, handle, controller.signal);
       } else {
-        await streamFollowUp(token, threadId, query, handle);
+        await streamFollowUp(token, threadId, query, handle, controller.signal);
       }
       await queryClient.invalidateQueries({ queryKey: ["conversations"] });
       await queryClient.invalidateQueries({ queryKey: ["conversation"] });
@@ -147,9 +155,35 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
         router.replace(`/app/c/${createdConversationId}`);
       }
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Unable to dispatch");
+      if (caught instanceof DOMException && caught.name === "AbortError") {
+        setError("Planning stopped by user.");
+      } else {
+        setError(caught instanceof Error ? caught.message : "Unable to dispatch");
+      }
     } finally {
+      controllerRef.current = null;
       setBusy(false);
+    }
+  }
+
+  async function abortSubmission() {
+    const controller = controllerRef.current;
+    const activeThread = activeThreadRef.current;
+    if (!controller) return;
+    controller.abort();
+    setError("Planning stopped by user.");
+    if (token && activeThread) {
+      try {
+        const stopped = await cancelTrip(token, activeThread);
+        setLivePayload(stopped);
+        await queryClient.invalidateQueries({ queryKey: ["conversations"] });
+        await queryClient.invalidateQueries({ queryKey: ["trips"] });
+        if (!conversationId && stopped.conversation_id) {
+          router.replace(`/app/c/${stopped.conversation_id}`);
+        }
+      } catch {
+        // The local abort message remains useful if the connection was already closed.
+      }
     }
   }
 
@@ -160,6 +194,7 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
       variant={isFresh ? "hero" : "dock"}
       showSuggestions={isFresh}
       disabled={busy || interventionPending || interventionResuming}
+      onAbort={busy ? () => void abortSubmission() : undefined}
       onSend={dispatch}
     />
   );
@@ -170,7 +205,7 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
         <div className="flex items-center justify-between border-b border-rule px-6 py-3">
           <div>
             <p className="font-display text-lg">
-              {payload.title ?? conversation.data?.title ?? "Untitled voyage"}
+              {conversation.data?.title ?? payload.title ?? "Untitled voyage"}
             </p>
             <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-soft">
               {payload.trip_constraints?.destination || "Unplotted"} ·{" "}

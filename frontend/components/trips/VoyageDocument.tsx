@@ -532,18 +532,25 @@ export function VoyageDocument({
         {conversationId ? (
           <Link
             href={`/app/c/${conversationId}`}
-            className="rounded-lg border border-rule px-3 py-2 text-xs hover:bg-paper-raised"
           >
-            Open chat
+            <Button type="button"
+              className="rounded-lg border border-rule  hover:bg-paper-raised"
+            >
+              Open Chat
+            </Button>
+
           </Link>
         ) : null}
 
-        <Button type="button" onClick={() => setTimelineOpen(true)}>
-          Trip timeline
+        <Button type="button"
+          className="rounded-lg border border-rule  hover:bg-paper-raised"
+          onClick={() => setTimelineOpen(true)}>
+          Trip Timeline
         </Button>
 
         <Button
           type="button"
+          className="rounded-lg border border-rule  hover:bg-paper-raised"
           onClick={() => void downloadPlanPdf(payload)}
         >
           Download PDF

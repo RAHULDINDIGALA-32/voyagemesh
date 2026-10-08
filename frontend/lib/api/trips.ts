@@ -52,6 +52,12 @@ export function respondToIntervention(
   });
 }
 
+export function cancelTrip(token: string, threadId: string) {
+  return apiFetch<TripPayload>(`/api/v1/trips/${threadId}/cancel`, token, {
+    method: "POST",
+  });
+}
+
 export function getTripStatus(token: string, threadId: string) {
   return apiFetch<{ thread_id: string; status: string; failure_reason?: string; errors?: string[] }>(
     `/api/v1/trips/${threadId}/status`, token,

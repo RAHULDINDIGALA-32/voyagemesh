@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Moon,
   PanelLeft,
@@ -11,38 +11,35 @@ import {
   Sun,
   LogOut,
   Search,
+  MoreVertical,
+  Pencil,
+  Trash2,
+  Map
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Wordmark } from "@/components/brand/Wordmark";
-import { Stamp } from "@/components/ui/Stamp";
-import { listConversations } from "@/lib/api/trips";
+import { deleteConversation, listConversations, renameConversation } from "@/lib/api/trips";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
 import { createClient } from "@/lib/supabase/client";
 import { useUiStore } from "@/stores/ui";
 
-function statusTone(status: string): "ink" | "brass" | "olive" | "danger" {
-  if (status === "ready") return "olive";
-  if (status === "awaiting_you") return "brass";
-  if (status === "blocked" || status === "failed") return "danger";
-  return "ink";
-}
-
-function statusLabel(status: string) {
-  if (status === "awaiting_you") return "HOLD";
-  if (status === "ready") return "READY";
-  if (status === "blocked") return "BLOCK";
-  return "DRAFT";
-}
-
-const subscribeToHydration = () => () => {};
+const subscribeToHydration = () => () => { };
 
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { token, email, fullName } = useAccessToken();
   const [accountOpen, setAccountOpen] = useState(false);
+  const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const [renameId, setRenameId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; title: string } | null>(null);
+  const [actionBusy, setActionBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const accountRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const queryClient = useQueryClient();
   const { setTheme, resolvedTheme } = useTheme();
   // Keep the server HTML and the first client render identical. next-themes reads
   // localStorage/media settings only after hydration.
@@ -61,6 +58,14 @@ export function Sidebar() {
     }
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
+  }, []);
+
+  useEffect(() => {
+    function closeMenu(event: MouseEvent) {
+      if (!menuRef.current?.contains(event.target as Node)) setOpenMenu(null);
+    }
+    document.addEventListener("mousedown", closeMenu);
+    return () => document.removeEventListener("mousedown", closeMenu);
   }, []);
 
   const displayName = fullName?.trim() || email?.split("@")[0] || "Account";
@@ -86,18 +91,52 @@ export function Sidebar() {
     router.refresh();
   }
 
+  async function saveRename() {
+    if (!token || !renameId || !renameValue.trim()) return;
+    setActionBusy(true);
+    setActionError(null);
+    try {
+      await renameConversation(token, renameId, renameValue.trim());
+      await queryClient.invalidateQueries({ queryKey: ["conversations"] });
+      await queryClient.invalidateQueries({ queryKey: ["conversation"] });
+      await queryClient.invalidateQueries({ queryKey: ["trips"] });
+      setRenameId(null);
+      setOpenMenu(null);
+    } catch (caught) {
+      setActionError(caught instanceof Error ? caught.message : "Unable to rename chat");
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
+  async function confirmDelete() {
+    if (!token || !deleteTarget) return;
+    setActionBusy(true);
+    setActionError(null);
+    try {
+      await deleteConversation(token, deleteTarget.id);
+      await queryClient.invalidateQueries({ queryKey: ["conversations"] });
+      await queryClient.invalidateQueries({ queryKey: ["trips"] });
+      if (pathname === `/app/c/${deleteTarget.id}`) router.replace("/app");
+      setDeleteTarget(null);
+      setOpenMenu(null);
+    } catch (caught) {
+      setActionError(caught instanceof Error ? caught.message : "Unable to delete chat");
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
   return (
     <aside
-      className={`flex h-full shrink-0 flex-col overflow-hidden border-r border-rule bg-paper transition-[width] duration-200 ease-out ${
-        collapsed ? "w-16" : "w-[280px]"
-      }`}
+      className={`flex h-full shrink-0 flex-col overflow-hidden border-r border-rule bg-paper transition-[width] duration-200 ease-out ${collapsed ? "w-16" : "w-[280px]"
+        }`}
     >
       <div
-        className={`flex border-b border-rule ${
-          collapsed
+        className={`flex border-b border-rule ${collapsed
             ? "flex-col items-center gap-1 px-1 py-2"
             : "items-center justify-between gap-2 px-3 py-3"
-        }`}
+          }`}
       >
         {collapsed ? (
           <span className="py-1 font-mono text-[11px] tracking-[0.18em] text-brass">VM</span>
@@ -112,9 +151,8 @@ export function Sidebar() {
             onClick={toggleSearch}
             aria-label="Search chats and trips"
             aria-expanded={searchOpen}
-            className={`rounded-[3px] p-1.5 text-ink-soft hover:bg-paper-raised ${
-              searchOpen ? "bg-paper-raised text-ink" : ""
-            }`}
+            className={`rounded-[3px] p-1.5 text-ink-soft hover:bg-paper-raised ${searchOpen ? "bg-paper-raised text-ink" : ""
+              }`}
           >
             <Search size={16} strokeWidth={1.25} />
           </button>
@@ -132,9 +170,8 @@ export function Sidebar() {
       <nav className="flex flex-col gap-1 border-b border-rule p-2">
         <Link
           href="/app"
-          className={`flex items-center gap-2 rounded-[3px] px-2 py-2 text-sm ${
-            pathname === "/app" ? "bg-paper-raised" : "hover:bg-paper-raised"
-          } ${collapsed ? "justify-center px-0" : ""}`}
+          className={`flex items-center gap-2 rounded-[3px] px-2 py-2 text-sm ${pathname === "/app" ? "bg-paper-raised" : "hover:bg-paper-raised"
+            } ${collapsed ? "justify-center px-0" : ""}`}
         >
           <Plus size={16} strokeWidth={1.25} />
           {!collapsed && <span>New</span>}
@@ -142,11 +179,10 @@ export function Sidebar() {
 
         <Link
           href="/app/trips"
-          className={`flex items-center gap-2 rounded-[3px] px-2 py-2 text-sm ${
-            pathname.startsWith("/app/trips") ? "bg-paper-raised" : "hover:bg-paper-raised"
-          } ${collapsed ? "justify-center px-0" : ""}`}
+          className={`flex items-center gap-2 rounded-[3px] px-2 py-2 text-sm ${pathname.startsWith("/app/trips") ? "bg-paper-raised" : "hover:bg-paper-raised"
+            } ${collapsed ? "justify-center px-0" : ""}`}
         >
-          <span className="font-mono text-[11px] text-steel">TR</span>
+          {<Map size={16} strokeWidth={1.4} className="text-steel" />}
           {!collapsed && <span>Trips</span>}
         </Link>
       </nav>
@@ -158,23 +194,64 @@ export function Sidebar() {
             {chats.map((chat) => {
               const active = pathname === `/app/c/${chat.conversation_id}`;
               return (
-                <Link
+                <div
                   key={chat.conversation_id}
-                  href={`/app/c/${chat.conversation_id}`}
-                  className={`mb-0.5 block rounded-[3px] px-2 py-2 ${
-                    active ? "bg-paper-raised" : "hover:bg-paper-raised"
-                  }`}
+                  className={`relative mb-0.5 rounded-[3px] px-2 py-2 ${active ? "bg-paper-raised" : "hover:bg-paper-raised"
+                    }`}
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <p className="truncate text-sm">{chat.title}</p>
-                    {/*
-                    <Stamp tone={statusTone(chat.status)}>{statusLabel(chat.status)}</Stamp>
-                    */}
+                    {renameId === chat.conversation_id ? (
+                      <form
+                        className="flex min-w-0 flex-1 gap-1"
+                        onSubmit={(event) => { event.preventDefault(); void saveRename(); }}
+                      >
+                        <input
+                          autoFocus
+                          value={renameValue}
+                          onChange={(event) => setRenameValue(event.target.value)}
+                          onKeyDown={(event) => { if (event.key === "Escape") setRenameId(null); }}
+                          className="min-w-0 flex-1 rounded border border-rule bg-paper px-1.5 py-1 text-sm outline-none focus:border-brass"
+                          maxLength={120}
+                        />
+                        <button type="submit" disabled={actionBusy} className="text-xs text-brass"></button>
+                      </form>
+                    ) : (
+                      <Link href={`/app/c/${chat.conversation_id}`} className="min-w-0 flex-1 truncate text-sm">
+                        {chat.title}
+                      </Link>
+                    )}
+                    <button
+                      type="button"
+                      aria-label={`Options for ${chat.title}`}
+                      aria-expanded={openMenu === chat.conversation_id}
+                      onClick={() => setOpenMenu((current) => current === chat.conversation_id ? null : chat.conversation_id)}
+                      className="shrink-0 rounded-md p-1 text-ink-soft opacity-70 hover:bg-paper hover:text-ink group-hover:opacity-100"
+                    >
+                      <MoreVertical size={16} strokeWidth={1.7} />
+                    </button>
                   </div>
                   <p className="mt-1 truncate font-mono text-[10px] text-ink-soft">
                     {chat.cover?.destination || "Unplotted"}
                   </p>
-                </Link>
+                  {openMenu === chat.conversation_id ? (
+                    <div ref={menuRef} className="absolute right-2 top-9 z-50 w-44 rounded-xl border border-rule bg-[#f3f2ee] p-2 shadow-[0_10px_30px_rgba(0,0,0,0.18)] dark:bg-[#20201f] dark:shadow-[0_10px_30px_rgba(0,0,0,0.45)]">
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm hover:bg-paper-raised"
+                        onClick={() => { setRenameId(chat.conversation_id); setRenameValue(chat.title); setOpenMenu(null); }}
+                      >
+                        <Pencil size={15} strokeWidth={1.6} /> Rename
+                      </button>
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm text-danger hover:bg-red-600/30"
+                        onClick={() => { setDeleteTarget({ id: chat.conversation_id, title: chat.title }); setActionError(null); setOpenMenu(null); }}
+                      >
+                        <Trash2 size={15} strokeWidth={1.6} /> Delete
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
               );
             })}
 
@@ -212,9 +289,8 @@ export function Sidebar() {
         ) : null}
 
         <div
-          className={`flex items-center gap-1 ${
-            collapsed ? "flex-col justify-center" : ""
-          }`}
+          className={`flex items-center gap-1 ${collapsed ? "flex-col justify-center" : ""
+            }`}
         >
           <button
             type="button"
@@ -234,13 +310,11 @@ export function Sidebar() {
             onClick={() => setAccountOpen((open) => !open)}
             aria-expanded={accountOpen}
             aria-label="Open account menu"
-            className={`flex items-center gap-2 rounded-[3px] py-1.5 text-left text-sm ${
-              collapsed
+            className={`flex items-center gap-2 rounded-[3px] py-1.5 text-left text-sm ${collapsed
                 ? "h-10 w-10 justify-center px-0"
-                : `min-w-0 flex-1 px-2 ${
-                    accountOpen ? "bg-paper-raised" : "hover:bg-paper-raised"
-                  }`
-            }`}
+                : `min-w-0 flex-1 px-2 ${accountOpen ? "bg-paper-raised" : "hover:bg-paper-raised"
+                }`
+              }`}
           >
             <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brass font-mono text-[12px] text-paper">
               {initials}
@@ -249,6 +323,19 @@ export function Sidebar() {
           </button>
         </div>
       </div>
+      {deleteTarget ? (
+        <div className="fixed inset-0 z-[100] grid place-items-center bg-black/45 px-4" role="presentation">
+          <div role="dialog" aria-modal="true" aria-labelledby="delete-chat-title" className="w-full max-w-md rounded-2xl border border-rule bg-[#f3f2ee] p-6 shadow-[0_10px_30px_rgba(0,0,0,0.18)] dark:bg-[#20201f] dark:shadow-[0_10px_30px_rgba(0,0,0,0.45)]">
+            <h2 id="delete-chat-title" className="text-lg font-semibold">Delete chat?</h2>
+            <p className="mt-2 text-sm leading-6 text-ink-soft">This chat and its connected trip will be permanently deleted. This action cannot be undone.</p>
+            {actionError ? <p className="mt-3 text-sm text-red-300">{actionError}</p> : null}
+            <div className="mt-6 flex justify-end gap-2">
+              <button type="button" disabled={actionBusy} onClick={() => setDeleteTarget(null)} className="rounded-lg bg-white/10 px-4 py-2 text-sm hover:bg-white/15">Cancel</button>
+              <button type="button" disabled={actionBusy} onClick={() => void confirmDelete()} className="rounded-lg border border-red-300 bg-red-500 px-4 py-2 text-sm font-medium text-white shadow-[0_0_0_2px_rgba(239,68,68,0.35)] hover:bg-red-400">{actionBusy ? "Deleting…" : "Delete"}</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </aside>
   );
 }

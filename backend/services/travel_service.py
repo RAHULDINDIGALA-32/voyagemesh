@@ -45,6 +45,8 @@ def derive_status(values: dict[str, Any], next_nodes: tuple | list) -> str:
         return "blocked"
     if values.get("execution_status") == "failed":
         return "failed"
+    if values.get("execution_status") == "aborted":
+        return "aborted"
     if intervention.get("status") == "pending":
         return "awaiting_human"
     if values.get("execution_status") == "resuming":
@@ -61,6 +63,7 @@ class TravelService:
         self.database = Database()
         self.graph: CompiledStateGraph | None = None
         self._resumes: dict[str, asyncio.Task] = {}
+        self._streams: dict[str, asyncio.Task] = {}
         self._reaper_task: asyncio.Task | None = None
 
     async def startup(self) -> None:
@@ -71,6 +74,8 @@ class TravelService:
     async def shutdown(self) -> None:
         for task in self._resumes.values():
             task.cancel()
+        for task in self._streams.values():
+            task.cancel()
         if self._reaper_task is not None:
             self._reaper_task.cancel()
             await asyncio.gather(self._reaper_task, return_exceptions=True)
@@ -78,6 +83,7 @@ class TravelService:
         if self._resumes:
             await asyncio.gather(*self._resumes.values(), return_exceptions=True)
         self._resumes.clear()
+        self._streams.clear()
         await self.database.close()
         self.graph = None
 
@@ -315,36 +321,70 @@ class TravelService:
             "data": {
                 "request_id": request_id,
                 "thread_id": thread_id,
-                "conversation_id": owned["conversation_id"],
-                "trip_id": owned["trip_id"],
+                "conversation_id": str(owned["conversation_id"]),
+                "trip_id": str(owned["trip_id"]),
             },
         }
 
-        async for chunk in graph.astream(
-            initial_state,
-            config=config,
-            stream_mode="updates",
-        ):
-            for node_name in chunk:
-                yield {
-                    "event": "progress",
-                    "data": {
-                        "node": node_name,
-                        "status": "completed",
-                    },
-                }
+        queue: asyncio.Queue = asyncio.Queue()
+        task = asyncio.create_task(
+            self._run_stream(thread_id, user_id, initial_state, config, queue, owned)
+        )
+        self._streams[thread_id] = task
+        try:
+            while True:
+                item = await queue.get()
+                if item is None:
+                    break
+                yield item
+        finally:
+            # Closing the HTTP/SSE consumer deliberately does not cancel the
+            # tracked workflow. Navigation is not an abort action.
+            if task.done():
+                self._streams.pop(thread_id, None)
 
-        result = await self._project(thread_id, user_id, add_message=True)
-        result["conversation_id"] = owned["conversation_id"]
-        result["trip_id"] = owned["trip_id"]
-        yield {
-            "event": (
-                "awaiting_human"
-                if result["status"] == "awaiting_human"
-                else "completed"
-            ),
-            "data": result,
-        }
+    async def _run_stream(
+        self,
+        thread_id: str,
+        user_id: str,
+        initial_state: dict,
+        config: dict,
+        queue: asyncio.Queue,
+        owned: dict,
+    ) -> None:
+        try:
+            async for chunk in self._get_graph().astream(
+                initial_state, config=config, stream_mode="updates"
+            ):
+                for node_name in chunk:
+                    await queue.put({
+                        "event": "progress",
+                        "data": {"node": node_name, "status": "completed"},
+                    })
+            result = await self._project(thread_id, user_id, add_message=True)
+            result["conversation_id"] = str(owned["conversation_id"])
+            result["trip_id"] = str(owned["trip_id"])
+            await queue.put({
+                "event": "awaiting_human" if result["status"] == "awaiting_human" else "completed",
+                "data": result,
+            })
+        except asyncio.CancelledError:
+            log.info("stream cancelled thread=%s", thread_id)
+            raise
+        except Exception as exc:
+            log.exception("stream failed thread=%s", thread_id)
+            try:
+                await self._get_graph().aupdate_state(
+                    {"configurable": {"thread_id": thread_id}},
+                    {"execution_status": "failed", "failure_reason": type(exc).__name__,
+                     "errors": [f"stream: {type(exc).__name__}"]},
+                )
+                await self._project(thread_id, user_id)
+            finally:
+                await queue.put({"event": "error", "data": {"detail": "Travel planning workflow failed"}})
+        finally:
+            await queue.put(None)
+            self._streams.pop(thread_id, None)
 
     async def _get_snapshot(self, thread_id: str):
         graph = self._get_graph()
@@ -377,6 +417,33 @@ class TravelService:
         await self._persist_result(thread_id, user_id, result, add_message=add_message)
         log.info("projection written thread=%s status=%s", thread_id, result["status"])
         return result
+
+    async def cancel_trip(self, thread_id: str, user_id: str) -> dict:
+        owned = await self._product().require_thread(thread_id, user_id)
+        await self._get_graph().aupdate_state(
+            {"configurable": {"thread_id": thread_id}},
+            {
+                "execution_status": "aborted",
+                "final_answer": "Planning was stopped by you. You can continue this chat whenever you are ready.",
+                "failure_reason": "user_aborted",
+            },
+        )
+        task = self._streams.get(thread_id) or self._resumes.get(thread_id)
+        if task is not None and not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        result = await self._project(thread_id, user_id, add_message=True)
+        result["conversation_id"] = str(owned["conversation_id"])
+        result["trip_id"] = str(owned["trip_id"])
+        result["title"] = owned["title"]
+        return result
+
+    async def delete_conversation(self, conversation_id: str, user_id: str) -> None:
+        record = await self._product().get_conversation(conversation_id, user_id)
+        if record is None:
+            raise LookupError("Conversation not found")
+        await self.cancel_trip(str(record["thread_id"]), user_id)
+        await self._product().soft_delete(conversation_id, user_id)
 
     async def get_trip(
         self,
@@ -661,22 +728,20 @@ class TravelService:
             },
         }
 
-        async for chunk in graph.astream(state, config=config, stream_mode="updates"):
-            for node_name in chunk:
-                yield {
-                    "event": "progress",
-                    "data": {"node": node_name, "status": "completed"},
-                }
-
-        result = await self._project(thread_id, user_id, add_message=True)
-        yield {
-            "event": (
-                "awaiting_human"
-                if result["status"] == "awaiting_human"
-                else "completed"
-            ),
-            "data": result,
-        }
+        queue: asyncio.Queue = asyncio.Queue()
+        task = asyncio.create_task(
+            self._run_stream(thread_id, user_id, state, config, queue, owned)
+        )
+        self._streams[thread_id] = task
+        try:
+            while True:
+                item = await queue.get()
+                if item is None:
+                    break
+                yield item
+        finally:
+            if task.done():
+                self._streams.pop(thread_id, None)
 
     async def get_trip_state(self, thread_id: str, user_id: str) -> dict:
         await self._product().require_thread(thread_id, user_id)

@@ -23,7 +23,10 @@ router = APIRouter(
 
 
 def _sse(event: str, data: dict) -> str:
-    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+    # Database-backed payloads can contain UUIDs/datetimes even though the
+    # public SSE contract is JSON. Keep serialization at the transport
+    # boundary so a single non-native value cannot terminate the stream.
+    return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n"
 
 
 def _serialize(record: dict) -> dict:
@@ -143,6 +146,18 @@ async def retry_trip(
         return await service.retry_resume(thread_id, str(user.id))
     except HitlError as exc:
         raise HTTPException(status_code=exc.http_status, detail={"code": exc.code, "detail": exc.detail, "recoverable": exc.recoverable}) from exc
+
+
+@router.post("/{thread_id}/cancel", response_model=TripResponse)
+async def cancel_trip(
+    thread_id: str,
+    user: AuthUser = Depends(get_current_user),
+    service: TravelService = Depends(get_travel_service),
+):
+    try:
+        return await service.cancel_trip(thread_id, str(user.id))
+    except HitlError as exc:
+        raise HTTPException(status_code=exc.http_status, detail={"code": exc.code, "detail": exc.detail}) from exc
 
 
 @router.post("/{thread_id}/interventions/reopen", response_model=TripResponse)

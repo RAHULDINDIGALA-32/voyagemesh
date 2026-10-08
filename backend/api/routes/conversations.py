@@ -72,7 +72,7 @@ async def delete_conversation(
     service: TravelService = Depends(get_travel_service),
 ):
     try:
-        await service._product().soft_delete(conversation_id, str(user.id))
+        await service.delete_conversation(conversation_id, str(user.id))
         return {"status": "deleted"}
     except LookupError as exc:
         raise HTTPException(status_code=404, detail="Conversation not found") from exc

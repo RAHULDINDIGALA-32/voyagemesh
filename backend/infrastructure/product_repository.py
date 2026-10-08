@@ -33,6 +33,7 @@ def map_status(execution_status: str) -> str:
         "completed": "ready",
         "blocked": "blocked",
         "failed": "failed",
+        "aborted": "aborted",
     }.get(execution_status, "draft")
 
 
@@ -107,7 +108,7 @@ class ProductRepository:
         conversation_id = uuid.uuid4()
         trip_id = uuid.uuid4()
         title = derive_title({}, query)
-        async with self.pool.connection() as connection:
+        async with self.pool.connection() as connection, connection.transaction():
             await connection.execute(
                 """
                 INSERT INTO voyagemesh_conversations
@@ -245,7 +246,7 @@ class ProductRepository:
     ) -> dict[str, Any]:
         message_id = uuid.uuid4()
         now = utc_now()
-        async with self.pool.connection() as connection:
+        async with self.pool.connection() as connection, connection.transaction():
             await connection.execute(
                 """
                 INSERT INTO voyagemesh_messages
@@ -283,7 +284,7 @@ class ProductRepository:
             "budget": constraints.get("budget", ""),
         }
         now = utc_now()
-        async with self.pool.connection() as connection:
+        async with self.pool.connection() as connection, connection.transaction():
             await connection.execute(
                 """
                 UPDATE voyagemesh_conversations
@@ -321,7 +322,7 @@ class ProductRepository:
         if record is None:
             raise LookupError("Conversation not found")
         now = utc_now()
-        async with self.pool.connection() as connection:
+        async with self.pool.connection() as connection, connection.transaction():
             await connection.execute(
                 """
                 UPDATE voyagemesh_conversations
@@ -345,7 +346,7 @@ class ProductRepository:
         if record is None:
             raise LookupError("Conversation not found")
         now = utc_now()
-        async with self.pool.connection() as connection:
+        async with self.pool.connection() as connection, connection.transaction():
             await connection.execute(
                 """
                 UPDATE voyagemesh_conversations

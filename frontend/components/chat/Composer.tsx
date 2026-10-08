@@ -33,11 +33,13 @@ function pickSuggestions(place: ApproxPlace) {
 export function Composer({
   disabled,
   onSend,
+  onAbort,
   variant = "dock",
   showSuggestions = false,
 }: {
   disabled?: boolean;
   onSend: (query: string) => void;
+  onAbort?: () => void;
   variant?: "hero" | "dock";
   showSuggestions?: boolean;
 }) {
@@ -96,12 +98,16 @@ export function Composer({
 
         <div className="absolute bottom-2.5 right-2.5">
           {disabled ? (
-            <span
+            <button
+              type="button"
+              onClick={onAbort}
+              disabled={!onAbort}
               aria-label="Planning in progress"
-              className="flex h-8 w-8 items-center justify-center rounded-full bg-brass text-paper"
+              title={onAbort ? "Stop planning" : "Planning in progress"}
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-brass text-paper transition hover:bg-danger disabled:cursor-default disabled:hover:bg-brass"
             >
               <Square size={11} fill="currentColor" strokeWidth={0} />
-            </span>
+            </button>
           ) : (
             <button
               type="submit"
@@ -109,7 +115,7 @@ export function Composer({
               disabled={!canSubmit}
               className={`flex h-8 w-8 items-center justify-center rounded-full transition-all ${canSubmit
                   ? "bg-brass text-paper hover:scale-105"
-                  : "bg-rule text-ink-soft/70"
+                  : "bg-red/50 text-ink-soft/70"
                 }`}
             >
               <ArrowUp size={16} strokeWidth={2.2} />

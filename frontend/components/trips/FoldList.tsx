@@ -18,7 +18,7 @@ export function FoldList({ trips }: { trips: TripRecord[] }) {
   }
 
   return (
-    <ul className="mt-8 divide-y divide-rule border-y border-rule">
+    <ul className="mt-12 divide-y divide-rule border-y border-rule">
       {trips.map((trip) => {
         const mark = stamp(trip.status);
         const dest = trip.cover?.destination || trip.title;
