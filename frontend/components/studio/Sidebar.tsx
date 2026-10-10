@@ -103,7 +103,7 @@ export function Sidebar() {
       setRenameId(null);
       setOpenMenu(null);
     } catch (caught) {
-      setActionError(caught instanceof Error ? caught.message : "Unable to rename chat");
+      setActionError(caught instanceof Error ? caught.message : "Unable to rename chat. Try again later.");
     } finally {
       setActionBusy(false);
     }
@@ -121,7 +121,7 @@ export function Sidebar() {
       setDeleteTarget(null);
       setOpenMenu(null);
     } catch (caught) {
-      setActionError(caught instanceof Error ? caught.message : "Unable to delete chat");
+      setActionError(caught instanceof Error ? caught.message : "Unable to delete chat. Try again later.");
     } finally {
       setActionBusy(false);
     }

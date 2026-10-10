@@ -89,7 +89,8 @@ export function Composer({
       ? "How can I help you chart a voyage?"
       : "Write your briefing..."
   }
-  className={`w-full resize-y overflow-y-auto bg-transparent text-sm leading-6 outline-none placeholder:text-ink-soft/70 ${
+ 
+className={`w-full resize-none overflow-y-auto bg-transparent text-sm leading-6 outline-none placeholder:text-ink-soft/70 ${
     hero
       ? "min-h-[72px] max-h-[160px] px-1 py-1 pr-12"
       : "min-h-[32px] max-h-[160px] py-1.5 pr-12"
@@ -113,7 +114,7 @@ export function Composer({
               type="submit"
               aria-label="Send briefing"
               disabled={!canSubmit}
-              className={`flex h-8 w-8 items-center justify-center rounded-full transition-all ${canSubmit
+              className={`flex h-8 w-8 items-center justify-center rounded-full cursor-pointer transition-all ${canSubmit
                   ? "bg-brass text-paper hover:scale-105"
                   : "bg-red/50 text-ink-soft/70"
                 }`}
@@ -141,7 +142,7 @@ function StarterQueries({ onPick }: { onPick: (query: string) => void }) {
           type="button"
           onClick={() => onPick(query)}
           style={{ animationDelay: `${index * 70}ms` }}
-          className="suggest-row group flex w-full items-center gap-3 rounded-md px-1 py-2 text-left text-sm text-ink-soft transition-colors hover:text-ink"
+          className="suggest-row group flex w-full items-center gap-3  cursor-pointer rounded-md px-1 py-2 text-left text-sm text-ink-soft transition-colors hover:text-ink"
         >
           <Compass
             size={15}

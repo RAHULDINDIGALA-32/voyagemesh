@@ -32,10 +32,14 @@ export function HitlCard({
   token,
   payload,
   onResolved,
+  onProgress = () => undefined,
+  onProcessingChange = () => undefined,
 }: {
   token: string;
   payload: TripPayload;
   onResolved: (next: TripPayload, action?: string) => void;
+  onProgress?: (stage: string) => void;
+  onProcessingChange?: (processing: boolean) => void;
 }) {
   const intervention = payload.human_intervention;
   const [error, setError] = useState<string | null>(null);
@@ -57,6 +61,7 @@ export function HitlCard({
     }
     setPending(true);
     setError(null);
+    onProcessingChange(true);
     try {
       const next = await respondToIntervention(
         token,
@@ -70,7 +75,7 @@ export function HitlCard({
       );
       onResolved(next, action);
       if (next.status === "resuming") {
-        await waitForResume(token, payload.thread_id, onResolved);
+        await waitForResume(token, payload.thread_id, onResolved, onProgress);
       }
     } catch (caught) {
       const failure = caught as Error & { code?: string; recoverable?: boolean };
@@ -81,6 +86,7 @@ export function HitlCard({
       setRecoverableAction(failure.code === "hitl_expired" ? "reopen" : failure.recoverable ? "retry" : null);
       setError(caught instanceof Error ? caught.message : "Unable to continue");
     } finally {
+      onProcessingChange(false);
       setPending(false);
     }
   }
@@ -89,10 +95,14 @@ export function HitlCard({
     accessToken: string,
     threadId: string,
     resolve: (next: TripPayload) => void,
+    reportProgress: (stage: string) => void,
   ) {
+    reportProgress("apply_human_response");
     for (let attempt = 0; attempt < 90; attempt += 1) {
       await new Promise((done) => window.setTimeout(done, 1500));
       const status = await getTripStatus(accessToken, threadId);
+      const stage = status.next?.[0] || status.status;
+      reportProgress(stage);
       if (status.status === "resuming" || status.status === "running") continue;
       const next = await getTrip(accessToken, threadId);
       resolve(next);
@@ -109,16 +119,20 @@ export function HitlCard({
     if (!payload.thread_id || !recoverableAction) return;
     setPending(true);
     setError(null);
+    onProcessingChange(true);
     try {
       const next = recoverableAction === "reopen"
         ? await reopenIntervention(token, payload.thread_id)
         : await retryTrip(token, payload.thread_id);
       onResolved(next);
-      if (next.status === "resuming") await waitForResume(token, payload.thread_id, onResolved);
+      if (next.status === "resuming") {
+        await waitForResume(token, payload.thread_id, onResolved, onProgress);
+      }
       setRecoverableAction(null);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to recover workflow");
     } finally {
+      onProcessingChange(false);
       setPending(false);
     }
   }
@@ -163,20 +177,43 @@ export function HitlCard({
       ) : null}
 
       {intervention.type === "budget_decision" ? (
-        <div className="mt-4 space-y-3">
-          <dl className="grid grid-cols-2 gap-2 font-mono text-xs">
-            {Object.entries(intervention.context ?? {}).map(([key, value]) => (
-              <div key={key}>
-                <dt className="text-ink-soft">{key.replaceAll("_", " ")}</dt>
-                <dd>{String(value)}</dd>
-              </div>
-            ))}
-          </dl>
+        <div className="mt-5 space-y-4">
+          <div className="overflow-hidden rounded-[4px] border border-rule bg-paper">
+            <div className="border-b border-rule px-4 py-3">
+              <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-soft">
+                Budget checkpoint
+              </p>
+              <p className="mt-1 text-xs leading-5 text-ink-soft">
+                Review the estimate before choosing how you would like to continue.
+              </p>
+            </div>
+            <div className="grid gap-px bg-rule sm:grid-cols-3">
+              {([
+                ["Your budget", "user_budget"],
+                ["Estimated total", "estimated_total"],
+                ["Difference", "difference"],
+              ] as const).map(([label, key]) => (
+                <div key={key} className="bg-paper px-4 py-3">
+                  <p className="font-mono text-[10px] uppercase tracking-[0.1em] text-ink-soft">
+                    {label}
+                  </p>
+                  <p className="mt-1 font-display text-lg text-ink">
+                    {key === "user_budget" || key === "estimated_total" || key === "difference"
+                      ? `${String(intervention.context?.currency ?? "")} ${String(intervention.context?.[key] ?? "—")}`.trim()
+                      : String(intervention.context?.[key] ?? "—")}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+
           <div className="flex flex-wrap gap-2">
             {(intervention.allowed_actions ?? []).map((action) => (
               <Button
                 key={action}
                 type="button"
+                variant={action === "continue" ? "brass" : "rule"}
+                className="capitalize"
                 disabled={pending}
                 onClick={() => {
                   if (action === "increase_budget") {
@@ -192,22 +229,27 @@ export function HitlCard({
           </div>
           {showBudget ? (
             <form
-              className="flex gap-2"
+              className="rounded-[4px] border border-brass/50 bg-paper px-4 py-3"
               onSubmit={(event) => {
                 event.preventDefault();
                 void submit("increase_budget", { budget });
               }}
             >
-              <input
-                required
-                value={budget}
-                onChange={(event) => setBudget(event.target.value)}
-                placeholder="INR 180000"
-                className="flex-1 rounded-[3px] border border-rule bg-paper px-2 py-1.5 text-sm"
-              />
-              <Button type="submit" variant="brass" disabled={pending}>
-                Set budget
-              </Button>
+              <label className="block font-mono text-[10px] uppercase tracking-[0.12em] text-ink-soft">
+                New maximum budget
+                <span className="mt-2 flex gap-2">
+                  <input
+                    required
+                    value={budget}
+                    onChange={(event) => setBudget(event.target.value)}
+                    placeholder={`e.g. ${String(intervention.context?.currency ?? "INR")} 180000`}
+                    className="min-w-0 flex-1 rounded-[3px] border border-rule bg-paper px-3 py-2 font-sans text-sm text-ink outline-none focus:border-brass"
+                  />
+                  <Button type="submit" variant="brass" disabled={pending}>
+                    Set budget
+                  </Button>
+                </span>
+              </label>
             </form>
           ) : null}
         </div>

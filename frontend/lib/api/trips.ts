@@ -59,7 +59,13 @@ export function cancelTrip(token: string, threadId: string) {
 }
 
 export function getTripStatus(token: string, threadId: string) {
-  return apiFetch<{ thread_id: string; status: string; failure_reason?: string; errors?: string[] }>(
+  return apiFetch<{
+    thread_id: string;
+    status: string;
+    next?: string[];
+    failure_reason?: string;
+    errors?: string[];
+  }>(
     `/api/v1/trips/${threadId}/status`, token,
   );
 }

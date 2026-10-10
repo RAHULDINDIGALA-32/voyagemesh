@@ -25,7 +25,7 @@ const STAGE_LABELS: Record<string, string> = {
   itinerary_agent: "Itinerary planning",
   budget_decision_gate: "Budget review",
   final_review_gate: "Itinerary review",
-  final_agent: "Preparing your voyage",
+  final_agent: "Preparing your Voyage",
   output_guardrail: "Final checks",
 };
 
@@ -43,6 +43,7 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
   const [livePayload, setLivePayload] = useState<TripPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hitlSubmitted, setHitlSubmitted] = useState(false);
+  const [progressNotice, setProgressNotice] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<AbortController | null>(null);
   const activeThreadRef = useRef<string | null>(null);
@@ -68,6 +69,7 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
       setProgress([]);
       setError(null);
       setHitlSubmitted(false);
+      setProgressNotice(null);
     }, 0);
     return () => window.clearTimeout(reset);
   }, [conversationId]);
@@ -102,6 +104,7 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
     setBusy(true);
     setError(null);
     setProgress([]);
+    setProgressNotice(null);
     const controller = new AbortController();
     controllerRef.current = controller;
     activeThreadRef.current = threadId ?? null;
@@ -220,19 +223,30 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
     setLivePayload(next);
     if (action) {
       setHitlSubmitted(true);
+      setBusy(true);
+      setProgress(["apply_human_response"]);
+      setProgressNotice(
+        `Decision recorded: ${action.replaceAll("_", " ").toUpperCase()}. Updating your Voyage Chart.`,
+      );
       setLocalMessages((current) => [
         ...current,
         {
           id: crypto.randomUUID(),
           conversation_id: next.conversation_id ?? conversationId ?? "pending",
           role: "assistant",
-          content: `Decision recorded: ${action.replaceAll("_", " ")}. I’m updating your Voyage Chart now.`,
+          content: `Decision recorded: ${action.replaceAll("_", " ").toUpperCase()}. Updating your Voyage Chart.`,
           kind: "hitl_action",
           created_at: new Date().toISOString(),
         },
       ]);
     } else {
       setHitlSubmitted(false);
+      if (next.status === "resuming") {
+        setBusy(true);
+      } else {
+        setBusy(false);
+        setProgressNotice(null);
+      }
       if (next.status !== "resuming" && next.answer) {
         setLocalMessages((current) => [
           ...current,
@@ -318,9 +332,16 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
               {busy ? (
                 <div className="mt-5 flex items-center gap-3 px-1 py-1 text-sm text-ink-soft">
                   <CompassMark size={18} animated />
-                  <span className="progress-shimmer font-mono text-[12px] tracking-[0.02em]">
-                    {agentLabel(progress[progress.length - 1] ?? "input_guardrail")}
-                  </span>
+                  <div className="flex min-w-0 items-baseline gap-2">
+                    <span className="progress-shimmer font-mono text-[12px] tracking-[0.02em]">
+                      {progressNotice ?? agentLabel(progress[progress.length - 1] ?? "input_guardrail")}
+                    </span>
+                    {progressNotice ? (
+                      <span className="truncate font-mono text-[10px] text-ink-soft">
+                        {agentLabel(progress[progress.length - 1] ?? "apply_human_response")}
+                      </span>
+                    ) : null}
+                  </div>
                   <span className="flex items-center gap-1 text-brass" aria-hidden="true">
                     <span className="h-1 w-1 animate-pulse rounded-full bg-current" />
                     <span className="h-1 w-1 animate-pulse rounded-full bg-current [animation-delay:180ms]" />
@@ -340,7 +361,7 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
                 <div className="mt-4 border border-steel px-3 py-3 text-sm">{payload.answer}</div>
               ) : null}
 
-              {interventionResuming ? (
+              {interventionResuming && !progressNotice ? (
                 <div className="mt-4 border border-brass/50 bg-paper-raised px-3 py-3 text-sm">
                   Applying your decision…
                 </div>
@@ -356,6 +377,11 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
                     await queryClient.invalidateQueries({ queryKey: ["conversation"] });
                     await queryClient.invalidateQueries({ queryKey: ["trip"] });
                     await queryClient.invalidateQueries({ queryKey: ["trips"] });
+                  }}
+                  onProgress={(stage) => setProgress([stage])}
+                  onProcessingChange={(processing) => {
+                    setBusy(processing);
+                    if (!processing) setProgressNotice(null);
                   }}
                 />
               ) : null}

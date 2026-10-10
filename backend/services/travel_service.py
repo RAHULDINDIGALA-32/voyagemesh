@@ -48,10 +48,10 @@ def derive_status(values: dict[str, Any], next_nodes: tuple | list) -> str:
         return "failed"
     if values.get("execution_status") == "aborted":
         return "aborted"
-    if intervention.get("status") == "pending":
-        return "awaiting_human"
     if values.get("execution_status") == "resuming":
         return "resuming"
+    if intervention.get("status") == "pending":
+        return "awaiting_human"
     if next_nodes:
         return "running"
     if is_complete(values):
