@@ -11,6 +11,7 @@ import {
   Circle,
   Line,
   Polygon,
+  G,
   Link,
   Font,
   StyleSheet,
@@ -19,6 +20,9 @@ import {
 import type { ReactNode } from "react";
 import { asTripDocument } from "@/lib/plan/parse";
 import type {
+  BudgetCard,
+  FlightOption,
+  HotelOption,
   TripDocument,
   TripPayload,
   WeatherCard,
@@ -40,6 +44,18 @@ const C = {
   olive: "#5B6B3A",
   danger: "#9B3B2E",
 };
+
+/** Category colours for the budget bar (brass family + olive accents). */
+const SERIES = [
+  "#9A7230",
+  "#5B6B3A",
+  "#C2A15E",
+  "#7D8B57",
+  "#6F5522",
+  "#B5BE8F",
+  "#D8C28D",
+  "#8A8068",
+];
 
 const SERIF = "Times-Roman";
 const SERIF_B = "Times-Bold";
@@ -70,13 +86,15 @@ export const safe = (v?: string | null) =>
     (ch) => GLYPH_MAP[ch] ?? "",
   );
 
-const join = (...parts: Array<string | undefined | null>) =>
+const join = (...parts: Array<string | undefined | null | false>) =>
   parts
-    .map((p) => p?.trim())
+    .map((p) => (p ? p.trim() : ""))
     .filter(Boolean)
     .join(" · ");
 
 const has = (v?: string | null) => !!v?.trim();
+
+const pad = (n: number) => String(n).padStart(2, "0");
 
 const deg = (v?: string, unit?: string) =>
   v && /^-?\d+(\.\d+)?$/.test(v.trim()) ? `${v.trim()}°${unit ?? ""}` : v;
@@ -88,6 +106,34 @@ const today = () =>
     year: "numeric",
   });
 
+/** Shrinks a font size as text gets longer so prices never overflow a cell. */
+const fit = (text: string | undefined, base: number, min: number, limit: number) => {
+  const len = (text ?? "").length;
+  return len <= limit ? base : Math.max(min, Math.round((base * limit) / len));
+};
+
+/** "Hyderabad (HYD)" -> { code: "HYD", name: "Hyderabad" }; otherwise name only. */
+function splitPlace(value?: string) {
+  const text = safe(value).trim();
+  if (!text) return { code: "", name: "" };
+  const match = text.match(/\b[A-Z]{3}\b/);
+  if (!match) return { code: "", name: text };
+  const name = text
+    .replace(match[0], "")
+    .replace(/[()\-–,/]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return { code: match[0], name };
+}
+
+/** Pulls a number out of "₹1,20,000" or "$800–$1,000" (ranges are averaged). */
+function parseAmount(value?: string): number | null {
+  if (!value) return null;
+  const nums = value.replace(/,/g, "").match(/\d+(\.\d+)?/g);
+  if (!nums?.length) return null;
+  const values = nums.map(Number);
+  return values.reduce((a, b) => a + b, 0) / values.length;
+}
 
 function T({
   style,
@@ -103,6 +149,10 @@ function T({
 /* ------------------------------------------------------------------ */
 
 const s = StyleSheet.create({
+  /* layout helpers */
+  row: { flexDirection: "row", alignItems: "center" },
+  rowBetween: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+
   /* pages */
   cover: { backgroundColor: C.paper, color: C.ink, padding: 52, fontFamily: SERIF },
   page: {
@@ -186,7 +236,7 @@ const s = StyleSheet.create({
   tocBlurb: { flex: 1, fontFamily: SERIF_I, fontSize: 9.5, color: C.soft },
 
   /* sections */
-  section: { marginBottom: 22 },
+  section: { marginBottom: 24 },
   secHead: {
     flexDirection: "row",
     alignItems: "flex-end",
@@ -205,52 +255,133 @@ const s = StyleSheet.create({
   note: { fontSize: 9, lineHeight: 1.45, color: C.soft, marginBottom: 2 },
   empty: { fontFamily: SERIF_I, color: C.soft },
 
+  /* shared: hero panel, pill, at-a-glance table */
+  hero: {
+    flexDirection: "row",
+    borderWidth: 0.75,
+    borderColor: C.rule,
+    borderRadius: 4,
+    backgroundColor: C.raised,
+    marginBottom: 12,
+  },
+  heroMetric: {
+    width: 150,
+    padding: 12,
+    justifyContent: "center",
+    backgroundColor: C.brassSoft,
+    borderTopLeftRadius: 4,
+    borderBottomLeftRadius: 4,
+  },
+  heroMetricVal: { fontFamily: SERIF_B, marginTop: 4, color: C.ink },
+  heroBody: { flex: 1, padding: 12, justifyContent: "center" },
+  pill: {
+    borderWidth: 0.75,
+    borderColor: C.brass,
+    borderRadius: 8,
+    paddingVertical: 2,
+    paddingHorizontal: 7,
+  },
+  ledHead: { flexDirection: "row", paddingVertical: 5, borderBottomWidth: 1, borderBottomColor: C.ink },
+  glRow: { flexDirection: "row", paddingVertical: 5, paddingHorizontal: 2, borderBottomWidth: 0.5, borderBottomColor: C.rule },
+
   /* flight pass */
   pass: {
     flexDirection: "row",
     borderWidth: 0.75,
     borderColor: C.rule,
-    borderRadius: 4,
+    borderRadius: 5,
     backgroundColor: C.raised,
-    marginBottom: 8,
+    marginBottom: 10,
   },
-  passMain: { flex: 1, padding: 10 },
-  passStub: {
-    width: 118,
-    padding: 10,
-    justifyContent: "center",
-    borderLeftWidth: 1,
-    borderLeftColor: C.rule,
-    borderLeftStyle: "dashed",
-    backgroundColor: C.brassSoft,
-  },
-  passAirline: { flexDirection: "row", justifyContent: "space-between" },
-  passRoute: { flexDirection: "row", alignItems: "center", marginTop: 8, marginBottom: 6 },
-  passCity: { flex: 1, fontFamily: SERIF_B, fontSize: 14 },
-  passTimes: { fontFamily: MONO, fontSize: 8, color: C.soft },
-
-  /* stay card */
-  stay: {
-    flexDirection: "row",
-    borderWidth: 0.75,
-    borderColor: C.rule,
-    borderRadius: 4,
-    backgroundColor: C.raised,
-    padding: 10,
-    marginBottom: 8,
-  },
-  stayIdx: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+  passMain: { flex: 1, padding: 12 },
+  passIdx: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: C.brass,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 10,
+    marginRight: 8,
   },
-  stayName: { fontFamily: SERIF_B, fontSize: 13 },
-  stayPrice: { fontFamily: MONO_B, fontSize: 10, textAlign: "right" },
+  passAirline: { fontFamily: SERIF_B, fontSize: 12.5 },
+  passRoute: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginTop: 12,
+    paddingTop: 10,
+    borderTopWidth: 0.5,
+    borderTopColor: C.rule,
+  },
+  passPlace: { flex: 1 },
+  passCode: { fontFamily: SERIF_B, color: C.ink },
+  passCity: { fontFamily: SERIF, fontSize: 8.5, color: C.soft, marginTop: 1 },
+  passTime: { fontFamily: MONO, fontSize: 8, color: C.ink, marginTop: 3 },
+  passMid: { width: 96, alignItems: "center", paddingTop: 3, paddingHorizontal: 4 },
+  passLine: { flex: 1, height: 0, borderTopWidth: 1, borderTopColor: C.brass, borderTopStyle: "dashed" },
+  passStub: {
+    width: 118,
+    padding: 12,
+    justifyContent: "space-between",
+    borderLeftWidth: 1,
+    borderLeftColor: C.rule,
+    borderLeftStyle: "dashed",
+    backgroundColor: C.brassSoft,
+    borderTopRightRadius: 5,
+    borderBottomRightRadius: 5,
+  },
+  notch: {
+    position: "absolute",
+    right: 112,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: C.paper,
+  },
+
+  /* stay card */
+  stay: {
+    borderWidth: 0.75,
+    borderColor: C.rule,
+    borderRadius: 5,
+    backgroundColor: C.raised,
+    marginBottom: 10,
+  },
+  stayTop: { flexDirection: "row" },
+  stayBody: { flex: 1, padding: 12 },
+  stayIdx: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: C.brass,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 9,
+  },
+  stayName: { fontFamily: SERIF_B, fontSize: 14, flex: 1 },
+  stayMeta: { flexDirection: "row", alignItems: "center", marginRight: 14 },
+  stayQuote: {
+    marginTop: 10,
+    paddingLeft: 9,
+    borderLeftWidth: 2,
+    borderLeftColor: C.brass,
+  },
+  stayPrice: {
+    width: 112,
+    padding: 12,
+    justifyContent: "center",
+    alignItems: "flex-end",
+    backgroundColor: C.brassSoft,
+    borderTopRightRadius: 5,
+    borderBottomRightRadius: 5,
+  },
+  stayFoot: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderTopWidth: 0.5,
+    borderTopColor: C.rule,
+  },
 
   /* weather */
   tiles: { flexDirection: "row", flexWrap: "wrap", marginHorizontal: -3 },
@@ -269,17 +400,27 @@ const s = StyleSheet.create({
     color: C.danger,
   },
 
-  /* budget ledger */
-  ledHead: { flexDirection: "row", paddingVertical: 5, borderBottomWidth: 1, borderBottomColor: C.ink },
-  ledRow: { flexDirection: "row", paddingVertical: 6, paddingHorizontal: 4, borderBottomWidth: 0.5, borderBottomColor: C.rule },
+  /* budget */
+  bar: { flexDirection: "row", height: 8, marginTop: 10 },
+  ledRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    paddingVertical: 7,
+    paddingHorizontal: 4,
+    borderBottomWidth: 0.5,
+    borderBottomColor: C.rule,
+  },
+  swatch: { width: 7, height: 7, borderRadius: 1.5, marginRight: 7, marginTop: 3 },
   ledTotal: {
     flexDirection: "row",
     justifyContent: "space-between",
+    alignItems: "center",
     paddingVertical: 8,
     marginTop: 2,
     borderTopWidth: 1.5,
     borderTopColor: C.ink,
   },
+  box: { flex: 1, borderWidth: 0.75, borderColor: C.rule, borderRadius: 4, padding: 10 },
 
   /* day + rail */
   dayHead: { flexDirection: "row", alignItems: "center", marginTop: 12, marginBottom: 8 },
@@ -335,7 +476,7 @@ const s = StyleSheet.create({
   packItem: { width: "50%", flexDirection: "row", paddingRight: 10, marginBottom: 6 },
   check: { width: 9, height: 9, borderWidth: 1, borderColor: C.ink, borderRadius: 1.5, marginRight: 7, marginTop: 1.5 },
 
-    /* voyage note / closing page */
+  /* voyage note / closing */
   voyageNote: {
     marginTop: 36,
     paddingTop: 28,
@@ -346,7 +487,6 @@ const s = StyleSheet.create({
     borderColor: C.rule,
     alignItems: "center",
   },
-
   voyageNoteKicker: {
     fontFamily: MONO,
     fontSize: 7.5,
@@ -355,7 +495,6 @@ const s = StyleSheet.create({
     textAlign: "center",
     marginBottom: 16,
   },
-
   voyageNoteText: {
     fontFamily: SERIF_I,
     fontSize: 15,
@@ -364,7 +503,6 @@ const s = StyleSheet.create({
     textAlign: "center",
     maxWidth: 410,
   },
-
   voyageNoteSub: {
     fontFamily: SERIF_B,
     fontSize: 10,
@@ -373,7 +511,6 @@ const s = StyleSheet.create({
     textAlign: "center",
     marginTop: 18,
   },
-
   voyageNoteBrand: {
     fontFamily: SERIF_I,
     fontSize: 11,
@@ -384,7 +521,7 @@ const s = StyleSheet.create({
 });
 
 /* ------------------------------------------------------------------ */
-/*  SVG ornaments                                                       */
+/*  SVG ornaments + icons                                               */
 /* ------------------------------------------------------------------ */
 
 function Compass({ size = 84 }: { size?: number }) {
@@ -404,15 +541,6 @@ function Compass({ size = 84 }: { size?: number }) {
   );
 }
 
-function Arrow({ width = 30 }: { width?: number }) {
-  return (
-    <Svg width={width} height={10} viewBox="0 0 30 10" style={{ marginHorizontal: 8 }}>
-      <Line x1={0} y1={5} x2={27} y2={5} stroke={C.brass} strokeWidth={1} />
-      <Path d="M23 1 L29 5 L23 9" stroke={C.brass} strokeWidth={1} fill="none" />
-    </Svg>
-  );
-}
-
 function RouteGraphic() {
   return (
     <Svg width={490} height={64} viewBox="0 0 490 64">
@@ -427,9 +555,58 @@ function RouteGraphic() {
       <Circle cx={12} cy={46} r={2.4} fill={C.brass} />
       <Circle cx={478} cy={18} r={7} fill={C.raised} stroke={C.brass} strokeWidth={1.2} />
       <Path d="M475 13 L475 24 M475 13 L483 15.5 L475 18" stroke={C.brass} strokeWidth={1} fill="none" />
-      {/* mid-route marker */}
       <Circle cx={245} cy={31} r={4} fill={C.brassSoft} stroke={C.brass} strokeWidth={1} />
     </Svg>
+  );
+}
+
+/** Aeroplane silhouette pointing right (the source glyph points up, so we rotate it). */
+function PlaneIcon({ size = 13 }: { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" style={{ marginHorizontal: 3 }}>
+      <G transform="rotate(90 12 12)">
+        <Path
+          d="M21 16v-2l-8-5V3.5C13 2.67 12.33 2 11.5 2S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"
+          fill={C.brass}
+        />
+      </G>
+    </Svg>
+  );
+}
+
+function PinIcon({ size = 9 }: { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" style={{ marginRight: 4 }}>
+      <Path d="M12 2C8.1 2 5 5.1 5 9c0 5.2 7 13 7 13s7-7.8 7-13c0-3.9-3.1-7-7-7z" fill={C.brass} />
+      <Circle cx={12} cy={9} r={2.6} fill={C.raised} />
+    </Svg>
+  );
+}
+
+function MoonIcon({ size = 9 }: { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" style={{ marginRight: 4 }}>
+      <Path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" fill={C.brass} />
+    </Svg>
+  );
+}
+
+/** Decorative barcode for the boarding-pass stub (deterministic per option). */
+function Barcode({ seed }: { seed: number }) {
+  const bars = Array.from({ length: 24 }, (_, k) => ((k * 7 + seed * 3) % 4) + 1);
+  return (
+    <View style={{ flexDirection: "row", height: 16, alignItems: "stretch" }}>
+      {bars.map((w, k) => (
+        <View
+          key={k}
+          style={{
+            width: w * 0.55,
+            marginRight: k % 3 === 0 ? 1.6 : 0.8,
+            backgroundColor: C.ink,
+          }}
+        />
+      ))}
+    </View>
   );
 }
 
@@ -477,6 +654,83 @@ const Notes = ({ items, title }: { items?: string[]; title?: string }) =>
     </View>
   ) : null;
 
+function Pill({ text }: { text: string }) {
+  return (
+    <View style={s.pill}>
+      <T style={s.monoBrass7}>{text.toUpperCase()}</T>
+    </View>
+  );
+}
+
+/** Headline panel: tinted metric block on the left, summary on the right. */
+function Hero({
+  metric,
+  label,
+  fallbackLabel,
+  summary,
+  extra,
+}: {
+  metric?: string;
+  label?: string;
+  fallbackLabel: string;
+  summary?: string;
+  extra?: ReactNode;
+}) {
+  if (!has(metric) && !has(summary)) return null;
+  return (
+    <View style={s.hero} wrap={false}>
+      {has(metric) ? (
+        <View style={s.heroMetric}>
+          <T style={s.mono7}>{(label || fallbackLabel).toUpperCase()}</T>
+          <T style={[s.heroMetricVal, { fontSize: fit(metric, 22, 12, 11) }]}>{metric}</T>
+        </View>
+      ) : null}
+      <View style={s.heroBody}>
+        {has(summary) ? (
+          <T style={{ fontSize: 10.5, lineHeight: 1.5, color: C.soft }}>{summary}</T>
+        ) : null}
+        {extra}
+      </View>
+    </View>
+  );
+}
+
+type GlanceCol = { label: string; flex: number; right?: boolean };
+
+/** Compact comparison table shown above option cards (like a "compare" bar). */
+function Glance({ cols, rows }: { cols: GlanceCol[]; rows: string[][] }) {
+  return (
+    <View style={{ marginBottom: 12 }} wrap={false}>
+      <View style={s.ledHead}>
+        {cols.map((c, i) => (
+          <T key={i} style={[s.mono7, { flex: c.flex, textAlign: c.right ? "right" : "left" }]}>
+            {c.label.toUpperCase()}
+          </T>
+        ))}
+      </View>
+      {rows.map((r, ri) => (
+        <View key={ri} style={[s.glRow, ri % 2 ? { backgroundColor: C.raised } : {}]}>
+          {r.map((cell, ci) => (
+            <T
+              key={ci}
+              style={[
+                {
+                  flex: cols[ci].flex,
+                  fontSize: 9,
+                  textAlign: cols[ci].right ? "right" : "left",
+                },
+                ci === 0 ? { fontFamily: SERIF_B } : ci === cols.length - 1 ? { fontFamily: MONO_B } : {},
+              ]}
+            >
+              {cell || "—"}
+            </T>
+          ))}
+        </View>
+      ))}
+    </View>
+  );
+}
+
 type RailItem = { left?: string; title?: string; detail?: string; meta?: string };
 
 function Rail({ items }: { items: RailItem[] }) {
@@ -496,89 +750,282 @@ function Rail({ items }: { items: RailItem[] }) {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Sections                                                            */
+/*  Flights                                                             */
 /* ------------------------------------------------------------------ */
+
+function PassPlace({
+  place,
+  time,
+  timeLabel,
+  align,
+}: {
+  place?: string;
+  time?: string;
+  timeLabel: string;
+  align: "left" | "right";
+}) {
+  const { code, name } = splitPlace(place);
+  const big = code || name || "—";
+  const size = code ? 26 : fit(big, 15, 9, 10);
+  const right = align === "right";
+  return (
+    <View style={[s.passPlace, right ? { alignItems: "flex-end" } : {}]}>
+      <T style={[s.passCode, { fontSize: size, textAlign: right ? "right" : "left" }]}>{big}</T>
+      {code && name ? (
+        <T style={[s.passCity, { textAlign: right ? "right" : "left" }]}>{name}</T>
+      ) : null}
+      {has(time) ? (
+        <View style={{ marginTop: 6, alignItems: right ? "flex-end" : "flex-start" }}>
+          <T style={s.mono7}>{timeLabel}</T>
+          <T style={[s.passTime, { textAlign: right ? "right" : "left" }]}>{time}</T>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function BoardingPass({ o, i }: { o: FlightOption; i: number }) {
+  return (
+    <View style={s.pass} wrap={false}>
+      {/* perforation notches */}
+      <View style={[s.notch, { top: -6 }]} />
+      <View style={[s.notch, { bottom: -6 }]} />
+
+      <View style={s.passMain}>
+        <View style={s.rowBetween}>
+          <View style={s.row}>
+            <View style={s.passIdx}>
+              <T style={{ fontFamily: MONO_B, fontSize: 7, color: C.brass }}>{pad(i + 1)}</T>
+            </View>
+            <View>
+              <T style={s.passAirline}>{o.airline || "Route option"}</T>
+              {has(o.flight_number) ? (
+                <T style={[s.monoBrass7, { marginTop: 1 }]}>{o.flight_number!.toUpperCase()}</T>
+              ) : null}
+            </View>
+          </View>
+          {has(o.cabin) ? <Pill text={o.cabin!} /> : null}
+        </View>
+
+        {o.origin || o.destination ? (
+          <View style={s.passRoute}>
+            <PassPlace place={o.origin} time={o.departs} timeLabel="DEPARTS" align="left" />
+            <View style={s.passMid}>
+              <T style={[s.mono7, { marginBottom: 3 }]}>{(o.duration || "").toUpperCase() || " "}</T>
+              <View style={[s.row, { width: "100%" }]}>
+                <View style={s.passLine} />
+                <PlaneIcon />
+                <View style={s.passLine} />
+              </View>
+            </View>
+            <PassPlace place={o.destination} time={o.arrives} timeLabel="ARRIVES" align="right" />
+          </View>
+        ) : has(o.departs) || has(o.arrives) || has(o.duration) ? (
+          <T style={[s.passTime, { marginTop: 10 }]}>
+            {join(o.departs && `Dep ${o.departs}`, o.arrives && `Arr ${o.arrives}`, o.duration)}
+          </T>
+        ) : null}
+
+        {has(o.notes) ? (
+          <T style={{ fontFamily: SERIF_I, fontSize: 9, lineHeight: 1.45, color: C.soft, marginTop: 10 }}>
+            {o.notes}
+          </T>
+        ) : null}
+      </View>
+
+      <View style={s.passStub}>
+        <T style={s.monoBrass7}>{`OPTION ${pad(i + 1)}`}</T>
+        <View style={{ marginVertical: 8 }}>
+          <T style={s.mono7}>EST. FARE</T>
+          <T
+            style={{
+              fontFamily: SERIF_B,
+              fontSize: fit(o.estimate, 15, 9, 11),
+              marginTop: 3,
+              color: C.ink,
+            }}
+          >
+            {o.estimate || "On request"}
+          </T>
+        </View>
+        <Barcode seed={i + 1} />
+      </View>
+    </View>
+  );
+}
 
 function Flights({ trip, sec }: { trip: TripDocument; sec: Sec }) {
   const f = trip.flights;
+  const options = f?.options ?? [];
   return (
     <>
-      <SectionHead sec={sec} metric={f?.metric} label={f?.metric_label} />
-      <Summary text={f?.summary} />
-      {(f?.options ?? []).map((o, i) => (
-        <View key={i} style={s.pass} wrap={false}>
-          <View style={s.passMain}>
-            <View style={s.passAirline}>
-              <T style={{ fontFamily: SERIF_B, fontSize: 12 }}>{o.airline || "Route option"}</T>
-              <T style={s.monoBrass7}>{(o.flight_number || `OPTION ${i + 1}`).toUpperCase()}</T>
-            </View>
-            {o.origin || o.destination ? (
-              <View style={s.passRoute}>
-                <T style={s.passCity}>{o.origin || "—"}</T>
-                <Arrow />
-                <T style={[s.passCity, { textAlign: "right" }]}>{o.destination || "—"}</T>
-              </View>
-            ) : null}
-            <T style={s.passTimes}>
-              {join(
-                o.departs && `Dep ${o.departs}`,
-                o.arrives && `Arr ${o.arrives}`,
-                o.duration,
-              )}
-            </T>
-            {has(o.notes) ? <T style={[s.note, { marginTop: 5 }]}>{o.notes}</T> : null}
-          </View>
-          <View style={s.passStub}>
-            <T style={s.monoBrass7}>{(o.cabin || "FARE").toUpperCase()}</T>
-            <T style={{ fontFamily: SERIF_B, fontSize: 13, marginTop: 4 }}>
-              {o.estimate || "On request"}
-            </T>
-          </View>
-        </View>
+      <SectionHead
+        sec={sec}
+        metric={options.length ? pad(options.length) : undefined}
+        label={options.length === 1 ? "Option" : "Options"}
+      />
+      <Hero
+        metric={f?.metric}
+        label={f?.metric_label}
+        fallbackLabel="Flight estimate"
+        summary={f?.summary}
+      />
+
+      {options.length > 1 ? (
+        <Glance
+          cols={[
+            { label: "Carrier", flex: 1.4 },
+            { label: "Route", flex: 1.3 },
+            { label: "Departs", flex: 1.4 },
+            { label: "Est. fare", flex: 1, right: true },
+          ]}
+          rows={options.map((o) => {
+            const a = splitPlace(o.origin);
+            const b = splitPlace(o.destination);
+            const from = a.code || a.name;
+            const to = b.code || b.name;
+            return [
+              join(o.airline, o.flight_number) || "Route option",
+              from && to ? `${from} - ${to}` : "",
+              o.departs || "",
+              o.estimate || "",
+            ];
+          })}
+        />
+      ) : null}
+
+      {options.map((o, i) => (
+        <BoardingPass key={i} o={o} i={i} />
       ))}
-      <Notes items={f?.notes} title="Flight notes" />
+
+      {!options.length && !has(f?.summary) ? (
+        <T style={s.empty}>Flight details are not available yet.</T>
+      ) : null}
+      <Notes items={f?.notes} title="Good to know" />
     </>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Stays                                                               */
+/* ------------------------------------------------------------------ */
+
+function StayCard({ o, i }: { o: HotelOption; i: number }) {
+  return (
+    <View style={s.stay} wrap={false}>
+      <View style={s.stayTop}>
+        <View style={s.stayBody}>
+          <View style={s.rowBetween}>
+            <View style={[s.row, { flex: 1, marginRight: 8 }]}>
+              <View style={s.stayIdx}>
+                <T style={{ fontFamily: MONO_B, fontSize: 8, color: C.brass }}>{pad(i + 1)}</T>
+              </View>
+              <T style={s.stayName}>{o.name || "Stay option"}</T>
+            </View>
+            {has(o.style) ? <Pill text={o.style!} /> : null}
+          </View>
+
+          {has(o.area) || has(o.nights) ? (
+            <View style={[s.row, { marginTop: 9, flexWrap: "wrap" }]}>
+              {has(o.area) ? (
+                <View style={s.stayMeta}>
+                  <PinIcon />
+                  <T style={{ fontSize: 9.5, color: C.soft }}>{o.area}</T>
+                </View>
+              ) : null}
+              {has(o.nights) ? (
+                <View style={s.stayMeta}>
+                  <MoonIcon />
+                  <T style={{ fontSize: 9.5, color: C.soft }}>{o.nights}</T>
+                </View>
+              ) : null}
+            </View>
+          ) : null}
+
+          {has(o.why) ? (
+            <View style={s.stayQuote}>
+              <T style={{ fontFamily: SERIF_I, fontSize: 9.5, lineHeight: 1.5, color: C.soft }}>{o.why}</T>
+            </View>
+          ) : null}
+        </View>
+
+        {has(o.estimate_per_night) ? (
+          <View style={s.stayPrice}>
+            <T style={[s.mono7, { textAlign: "right" }]}>PER NIGHT</T>
+            <T
+              style={{
+                fontFamily: SERIF_B,
+                fontSize: fit(o.estimate_per_night, 16, 9, 11),
+                textAlign: "right",
+                marginTop: 3,
+              }}
+            >
+              {o.estimate_per_night}
+            </T>
+          </View>
+        ) : null}
+      </View>
+
+      {has(o.source) ? (
+        <View style={s.stayFoot}>
+          <T style={s.mono7}>{`SOURCE · ${o.source!.toUpperCase()}`}</T>
+        </View>
+      ) : null}
+    </View>
   );
 }
 
 function Stays({ trip, sec }: { trip: TripDocument; sec: Sec }) {
   const h = trip.hotels;
+  const options = h?.options ?? [];
   return (
     <>
-      <SectionHead sec={sec} metric={h?.metric} label={h?.metric_label} />
-      <Summary text={h?.summary} />
-      {(h?.options ?? []).map((o, i) => (
-        <View key={i} style={s.stay} wrap={false}>
-          <View style={s.stayIdx}>
-            <T style={{ fontFamily: MONO_B, fontSize: 8, color: C.brass }}>{String(i + 1).padStart(2, "0")}</T>
-          </View>
-          <View style={{ flex: 1 }}>
-            <T style={s.stayName}>{o.name || "Stay option"}</T>
-            <T style={[s.mono7, { marginTop: 3 }]}>
-              {join(o.area, o.nights, o.style).toUpperCase()}
-            </T>
-            {has(o.why) ? <T style={[s.note, { marginTop: 5 }]}>{o.why}</T> : null}
-            {has(o.source) ? <T style={[s.mono7, { marginTop: 3 }]}>{`SOURCE: ${o.source}`}</T> : null}
-          </View>
-          {has(o.estimate_per_night) ? (
-            <View style={{ width: 92, marginLeft: 8 }}>
-              <T style={s.stayPrice}>{o.estimate_per_night}</T>
-              <T style={[s.mono7, { textAlign: "right", marginTop: 2 }]}>PER NIGHT</T>
-            </View>
-          ) : null}
-        </View>
+      <SectionHead
+        sec={sec}
+        metric={options.length ? pad(options.length) : undefined}
+        label={options.length === 1 ? "Pick" : "Picks"}
+      />
+      <Hero
+        metric={h?.metric}
+        label={h?.metric_label}
+        fallbackLabel="Stay estimate"
+        summary={h?.summary}
+      />
+
+      {options.length > 1 ? (
+        <Glance
+          cols={[
+            { label: "Property", flex: 1.6 },
+            { label: "Area", flex: 1.2 },
+            { label: "Style", flex: 1 },
+            { label: "Per night", flex: 1, right: true },
+          ]}
+          rows={options.map((o) => [o.name || "Stay option", o.area || "", o.style || "", o.estimate_per_night || ""])}
+        />
+      ) : null}
+
+      {options.map((o, i) => (
+        <StayCard key={i} o={o} i={i} />
       ))}
-      <Notes items={h?.notes} title="Stay notes" />
+
+      {!options.length && !has(h?.summary) ? (
+        <T style={s.empty}>Accommodation details are not available yet.</T>
+      ) : null}
+      <Notes items={h?.notes} title="Good to know" />
     </>
   );
 }
 
+/* ------------------------------------------------------------------ */
+/*  Weather                                                             */
+/* ------------------------------------------------------------------ */
+
 const hasWeather = (w?: WeatherCard) =>
   !!w &&
-  [w.summary, w.headline, w.metric, w.condition, w.season, w.temp_high, w.temp_low].some(has) ||
-  !!w?.forecast?.length ||
-  !!w?.alerts?.length ||
-  !!w?.packing_hints?.length;
+  ([w.summary, w.headline, w.metric, w.condition, w.season, w.temp_high, w.temp_low].some(has) ||
+    !!w.forecast?.length ||
+    !!w.alerts?.length ||
+    !!w.packing_hints?.length);
 
 function Weather({ trip, sec }: { trip: TripDocument; sec: Sec }) {
   const w = trip.weather!;
@@ -651,32 +1098,108 @@ function Weather({ trip, sec }: { trip: TripDocument; sec: Sec }) {
   );
 }
 
+/* ------------------------------------------------------------------ */
+/*  Budget                                                              */
+/* ------------------------------------------------------------------ */
+
+const hasBudget = (b?: BudgetCard) =>
+  !!b &&
+  (has(b.summary) ||
+    has(b.estimated_total) ||
+    has(b.metric) ||
+    !!b.lines?.length ||
+    !!b.exclusions?.length ||
+    !!b.assumptions?.length);
+
 function Budget({ trip, sec }: { trip: TripDocument; sec: Sec }) {
-  const b = trip.budget;
-  const total = b?.estimated_total || b?.metric;
-  const lines = b?.lines ?? [];
+  const b = trip.budget!;
+  const total = b.estimated_total || b.metric;
+  const lines = b.lines ?? [];
+
+  const parsed = lines.map((l) => parseAmount(l.amount));
+  const sum = parsed.reduce<number>((a, v) => a + (v ?? 0), 0);
+  const showShares = sum > 0 && parsed.filter((v) => v !== null).length >= 2;
+  const pct = (i: number) => (showShares && parsed[i] ? (parsed[i]! / sum) * 100 : null);
+  const color = (i: number) => SERIES[i % SERIES.length];
+
   return (
     <>
-      <SectionHead sec={sec} metric={total} label={b?.metric_label || (b?.currency ? `Currency ${b.currency}` : undefined)} />
-      <Summary text={b?.summary} />
+      <SectionHead
+        sec={sec}
+        metric={lines.length ? pad(lines.length) : undefined}
+        label={lines.length === 1 ? "Category" : "Categories"}
+      />
+
+      <Hero
+        metric={total}
+        label={b.metric_label}
+        fallbackLabel="Estimated total"
+        summary={b.summary}
+        extra={
+          has(b.currency) ? (
+            <View style={{ marginTop: 8, alignItems: "flex-start" }}>
+              <Pill text={`Currency ${b.currency}`} />
+            </View>
+          ) : undefined
+        }
+      />
+
+      {showShares ? (
+        <View wrap={false} style={{ marginBottom: 10 }}>
+          <T style={[s.mono7, { marginBottom: -2 }]}>WHERE THE MONEY GOES</T>
+          <View style={s.bar}>
+            {lines.map((_, i) => {
+              const p = pct(i);
+              if (!p) return null;
+              return (
+                <View
+                  key={i}
+                  style={{
+                    flex: p,
+                    backgroundColor: color(i),
+                    borderRadius: 2,
+                    marginRight: i < lines.length - 1 ? 1.5 : 0,
+                  }}
+                />
+              );
+            })}
+          </View>
+        </View>
+      ) : null}
+
       {lines.length ? (
         <View>
           <View style={s.ledHead}>
-            <T style={[s.mono7, { flex: 1.1 }]}>CATEGORY</T>
-            <T style={[s.mono7, { width: 90, textAlign: "right" }]}>AMOUNT</T>
-            <T style={[s.mono7, { flex: 1.6, paddingLeft: 12 }]}>NOTES</T>
+            <T style={[s.mono7, { flex: 1 }]}>CATEGORY</T>
+            <T style={[s.mono7, { width: 100, textAlign: "right" }]}>AMOUNT</T>
+            {showShares ? <T style={[s.mono7, { width: 34, textAlign: "right" }]}>SHARE</T> : null}
           </View>
-          {lines.map((l, i) => (
-            <View
-              key={i}
-              style={[s.ledRow, i % 2 ? { backgroundColor: C.raised } : {}]}
-              wrap={false}
-            >
-              <T style={{ flex: 1.1, fontFamily: SERIF_B }}>{l.category}</T>
-              <T style={{ width: 90, textAlign: "right", fontFamily: MONO_B, fontSize: 9 }}>{l.amount}</T>
-              <T style={{ flex: 1.6, paddingLeft: 12, fontSize: 9, color: C.soft }}>{l.notes}</T>
-            </View>
-          ))}
+          {lines.map((l, i) => {
+            const p = pct(i);
+            return (
+              <View
+                key={i}
+                style={[s.ledRow, i % 2 ? { backgroundColor: C.raised } : {}]}
+                wrap={false}
+              >
+                {showShares ? <View style={[s.swatch, { backgroundColor: color(i) }]} /> : null}
+                <View style={{ flex: 1, paddingRight: 8 }}>
+                  <T style={{ fontFamily: SERIF_B, fontSize: 10.5 }}>{l.category}</T>
+                  {has(l.notes) ? (
+                    <T style={{ fontSize: 8.5, lineHeight: 1.4, color: C.soft, marginTop: 1.5 }}>{l.notes}</T>
+                  ) : null}
+                </View>
+                <T style={{ width: 100, textAlign: "right", fontFamily: MONO_B, fontSize: 9 }}>
+                  {l.amount || "—"}
+                </T>
+                {showShares ? (
+                  <T style={{ width: 34, textAlign: "right", fontFamily: MONO, fontSize: 8, color: C.soft }}>
+                    {p ? `${Math.round(p)}%` : ""}
+                  </T>
+                ) : null}
+              </View>
+            );
+          })}
           {has(total) ? (
             <View style={s.ledTotal} wrap={false}>
               <T style={{ fontFamily: SERIF_B, fontSize: 13 }}>Estimated total</T>
@@ -685,11 +1208,34 @@ function Budget({ trip, sec }: { trip: TripDocument; sec: Sec }) {
           ) : null}
         </View>
       ) : null}
-      <Notes items={b?.exclusions} title="Not included" />
-      <Notes items={b?.assumptions} title="Budget assumptions" />
+
+      {b.assumptions?.length || b.exclusions?.length ? (
+        <View style={[s.row, { alignItems: "flex-start", marginTop: 12 }]} wrap={false}>
+          {b.assumptions?.length ? (
+            <View style={[s.box, b.exclusions?.length ? { marginRight: 8 } : {}]}>
+              <T style={[s.monoBrass7, { marginBottom: 5 }]}>ASSUMPTIONS</T>
+              {b.assumptions.map((a, i) => (
+                <T key={i} style={s.note}>{`•  ${a}`}</T>
+              ))}
+            </View>
+          ) : null}
+          {b.exclusions?.length ? (
+            <View style={[s.box, { borderStyle: "dashed" }]}>
+              <T style={[s.mono7, { marginBottom: 5 }]}>NOT INCLUDED</T>
+              {b.exclusions.map((e, i) => (
+                <T key={i} style={s.note}>{`•  ${e}`}</T>
+              ))}
+            </View>
+          ) : null}
+        </View>
+      ) : null}
     </>
   );
 }
+
+/* ------------------------------------------------------------------ */
+/*  Itinerary, packing, timeline                                        */
+/* ------------------------------------------------------------------ */
 
 function Itinerary({ trip, sec }: { trip: TripDocument; sec: Sec }) {
   const it = trip.itinerary;
@@ -782,11 +1328,23 @@ function Timeline({ trip, sec }: { trip: TripDocument; sec: Sec }) {
 /* ------------------------------------------------------------------ */
 
 function buildSections(trip: TripDocument): Sec[] {
+  const f = trip.flights;
+  const h = trip.hotels;
   const defs = [
-    { key: "flights", title: "Flights", blurb: "Boarding-pass style options, times and fares", on: has(trip.flights?.summary) || !!trip.flights?.options?.length },
-    { key: "stays", title: "Stays", blurb: "Where to sleep, by area and style", on: has(trip.hotels?.summary) || !!trip.hotels?.options?.length },
+    {
+      key: "flights",
+      title: "Flights",
+      blurb: "Boarding-pass style options, times and fares",
+      on: has(f?.summary) || has(f?.metric) || !!f?.options?.length || !!f?.notes?.length,
+    },
+    {
+      key: "stays",
+      title: "Stays",
+      blurb: "Where to sleep, by area, style and price",
+      on: has(h?.summary) || has(h?.metric) || !!h?.options?.length || !!h?.notes?.length,
+    },
     { key: "weather", title: "Weather", blurb: "What the sky will do, and how to dress for it", on: hasWeather(trip.weather) },
-    { key: "budget", title: "Budget", blurb: "The ledger: estimates, totals and exclusions", on: has(trip.budget?.summary) || !!trip.budget?.lines?.length },
+    { key: "budget", title: "Budget", blurb: "The ledger: estimates, shares and exclusions", on: hasBudget(trip.budget) },
     { key: "itinerary", title: "Itinerary", blurb: "Day-by-day plan with timed stops", on: has(trip.itinerary?.summary) || !!trip.itinerary?.days?.length },
     { key: "packing", title: "Packing checklist", blurb: "Tick-off list grouped by category", on: !!trip.packing?.items?.length },
     { key: "timeline", title: "Journey timeline", blurb: "The whole trip, start to finish", on: !!trip.timeline?.events?.length },
@@ -797,7 +1355,7 @@ function buildSections(trip: TripDocument): Sec[] {
       key: d.key,
       title: d.title,
       blurb: d.blurb,
-      no: String(i + 1).padStart(2, "0"),
+      no: pad(i + 1),
       id: `sec-${d.key}`,
     }));
 }
@@ -821,7 +1379,7 @@ function Cover({ trip, sections }: { trip: TripDocument; sections: Sec[] }) {
     ["DATES", trip.dates || "Open"],
     ["TRAVELERS", trip.travelers || "Not specified"],
     ["BUDGET", budget || "TBD"],
-    ["SECTIONS", String(sections.length).padStart(2, "0")],
+    ["SECTIONS", pad(sections.length)],
   ];
 
   return (
@@ -864,7 +1422,7 @@ function Cover({ trip, sections }: { trip: TripDocument; sections: Sec[] }) {
         {facts.map(([label, value], i) => (
           <View key={label} style={[s.stripCell, i ? s.stripCellDiv : {}]}>
             <T style={s.mono7}>{label}</T>
-            <T style={s.stripVal}>{value}</T>
+            <T style={[s.stripVal, { fontSize: fit(value, 12, 8.5, 16) }]}>{value}</T>
           </View>
         ))}
       </View>
@@ -903,22 +1461,12 @@ function VoyageNote({ trip }: { trip: TripDocument }) {
   return (
     <View style={s.voyageNote} wrap={false}>
       <T style={s.voyageNoteKicker}>A NOTE FOR THE JOURNEY</T>
-
-      <T style={s.voyageNoteText}>
-        {message}
-      </T>
-
-      <T style={s.voyageNoteSub}>
-        Travel well. Wander freely. Make it yours.
-      </T>
-
-      <T style={s.voyageNoteBrand}>
-        — VoyageMesh
-      </T>
+      <T style={s.voyageNoteText}>{message}</T>
+      <T style={s.voyageNoteSub}>Travel well. Wander freely. Make it yours.</T>
+      <T style={s.voyageNoteBrand}>— VoyageMesh</T>
     </View>
   );
 }
-
 
 function VoyagePdf({ trip }: { trip: TripDocument }) {
   const sections = buildSections(trip);
@@ -960,7 +1508,6 @@ function VoyagePdf({ trip }: { trip: TripDocument }) {
         ) : null}
 
         <VoyageNote trip={trip} />
-
 
         <View style={s.runFoot} fixed>
           <T style={s.mono7}>{`GENERATED ${today().toUpperCase()}`}</T>
