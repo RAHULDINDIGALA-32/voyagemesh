@@ -91,29 +91,30 @@ export function HitlCard({
     }
   }
 
-  async function waitForResume(
-    accessToken: string,
-    threadId: string,
-    resolve: (next: TripPayload) => void,
-    reportProgress: (stage: string) => void,
-  ) {
-    reportProgress("apply_human_response");
-    for (let attempt = 0; attempt < 90; attempt += 1) {
-      await new Promise((done) => window.setTimeout(done, 1500));
-      const status = await getTripStatus(accessToken, threadId);
-      const stage = status.next?.[0] || status.status;
-      reportProgress(stage);
-      if (status.status === "resuming" || status.status === "running") continue;
-      const next = await getTrip(accessToken, threadId);
-      resolve(next);
-      if (status.status === "failed") {
-        setRecoverableAction("retry");
-        setError("The decision could not be applied. You can retry the workflow.");
-      }
-      return;
+
+async function waitForResume(
+  accessToken: string,
+  threadId: string,
+  resolve: (next: TripPayload) => void | Promise<void>,
+  reportProgress: (stage: string) => void,
+) {
+  reportProgress("apply_human_response");
+  for (let attempt = 0; attempt < 90; attempt += 1) {
+    await new Promise((done) => window.setTimeout(done, 1500));
+    const status = await getTripStatus(accessToken, threadId);
+    const stage = status.next?.[0] || status.status;
+    reportProgress(stage);
+    if (status.status === "resuming" || status.status === "running") continue;
+    const next = await getTrip(accessToken, threadId);
+    await resolve(next);            // await, so busy stays true until synced
+    if (status.status === "failed") {
+      setRecoverableAction("retry");
+      setError("The decision could not be applied. You can retry the workflow.");
     }
-    setError("The workflow is taking longer than expected. You can reload to check its status.");
+    return;
   }
+  setError("The workflow is taking longer than expected. You can reload to check its status.");
+}
 
   async function recover() {
     if (!payload.thread_id || !recoverableAction) return;

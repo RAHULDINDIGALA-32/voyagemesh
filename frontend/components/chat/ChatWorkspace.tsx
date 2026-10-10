@@ -48,6 +48,9 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
   const controllerRef = useRef<AbortController | null>(null);
   const activeThreadRef = useRef<string | null>(null);
 
+  const baselineIdsRef = useRef<Set<string>>(new Set());
+
+
   const conversation = useQuery({
     queryKey: ["conversation", conversationId, token],
     queryFn: () => getConversation(token!, conversationId!),
@@ -61,6 +64,7 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
     queryFn: () => getTrip(token!, threadId!),
     enabled: Boolean(token && threadId),
   });
+
 
   useEffect(() => {
     const reset = window.setTimeout(() => {
@@ -87,13 +91,25 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
   const payload = livePayload ?? trip.data ?? null;
   //const document = payload ? asTripDocument(payload) : null;
   //const weatherLine = [document?.weather?.metric, document?.weather?.summary]
-    //.filter((part) => part?.trim())
-    //.join(" · ");
+  //.filter((part) => part?.trim())
+  //.join(" · ");
   const interventionPending =
     payload?.human_intervention?.status === "pending" && !hitlSubmitted;
   const interventionResuming = payload?.status === "resuming";
   const greeting = useMemo(() => pickGreeting(fullName), [fullName]);
   const isFresh = !conversationId && messages.length === 0 && !busy;
+
+   const lastAnswerId = useMemo(() => {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const m = messages[i];
+    if (m.role === "assistant" && m.kind !== "hitl" && m.kind !== "hitl_action") return m.id;
+  }
+  return null;
+}, [messages]);
+
+const showPlanLink =
+  !busy && !interventionPending && !interventionResuming &&
+  Boolean(payload?.thread_id) && payload?.status !== "blocked";
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });
@@ -219,49 +235,102 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
 
   if (!ready) return null;
 
-  function handleHitlResolved(next: TripPayload, action?: string) {
-    setLivePayload(next);
-    if (action) {
-      setHitlSubmitted(true);
-      setBusy(true);
-      setProgress(["apply_human_response"]);
-      setProgressNotice(
-        `Decision recorded: ${action.replaceAll("_", " ").toUpperCase()}. Updating your Voyage Chart.`,
-      );
-      setLocalMessages((current) => [
-        ...current,
-        {
-          id: crypto.randomUUID(),
-          conversation_id: next.conversation_id ?? conversationId ?? "pending",
-          role: "assistant",
-          content: `Decision recorded: ${action.replaceAll("_", " ").toUpperCase()}. Updating your Voyage Chart.`,
-          kind: "hitl_action",
-          created_at: new Date().toISOString(),
-        },
-      ]);
-    } else {
-      setHitlSubmitted(false);
-      if (next.status === "resuming") {
-        setBusy(true);
-      } else {
-        setBusy(false);
-        setProgressNotice(null);
-      }
-      if (next.status !== "resuming" && next.answer) {
-        setLocalMessages((current) => [
-          ...current,
+
+  
+function getPersistedMessages(): ChatMessage[] {
+  const entries = queryClient.getQueriesData<{ messages?: ChatMessage[] }>({
+    queryKey: ["conversation"],
+  });
+  return entries.flatMap(([, data]) => data?.messages ?? []);
+}
+
+  async function refreshAfterCompletion(next: TripPayload) {
+  // If the workflow paused again (e.g. regenerate -> new review), there is no final answer to wait for.
+  if (next.human_intervention?.status === "pending") {
+    await Promise.all(
+      ["conversations", "conversation", "trip", "trips"].map((key) =>
+        queryClient.invalidateQueries({ queryKey: [key] }),
+      ),
+    );
+    return;
+  }
+
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    await Promise.all(
+      ["conversations", "trip", "trips"].map((key) =>
+        queryClient.invalidateQueries({ queryKey: [key] }),
+      ),
+    );
+    await queryClient.refetchQueries({ queryKey: ["conversation"] });
+
+    const hasFinalAnswer = getPersistedMessages().some(
+      (m) =>
+        m.role === "assistant" &&
+        m.kind !== "hitl" &&
+        m.kind !== "hitl_action" &&
+        !baselineIdsRef.current.has(m.id), // must be NEW since the action was submitted
+    );
+    if (hasFinalAnswer) return;
+
+    await new Promise((r) => window.setTimeout(r, 1000));
+  }
+}
+
+  async function handleHitlResolved(next: TripPayload, action?: string) {
+  setLivePayload(next);
+
+  if (action) {
+    // snapshot what is already persisted so we can detect the NEW final message later
+    baselineIdsRef.current = new Set(getPersistedMessages().map((m) => m.id));
+
+    setHitlSubmitted(true);
+    setBusy(true);
+    setProgress(["apply_human_response"]);
+    const notice = `Decision recorded: ${action.replaceAll("_", " ").toUpperCase()}. Updating your Voyage Chart.`;
+    setProgressNotice(notice);
+    setLocalMessages((current) => [
+      ...current,
+      {
+        id: crypto.randomUUID(),
+        conversation_id: next.conversation_id ?? conversationId ?? "pending",
+        role: "assistant",
+        content: notice,
+        kind: "hitl_action",
+        created_at: new Date().toISOString(),
+      },
+    ]);
+    return;
+  }
+
+  setHitlSubmitted(false);
+  if (next.status === "resuming") {
+    setBusy(true);
+    return;
+  }
+
+  setProgressNotice(null);
+
+  const finalText = next.answer || next.trip_document?.chat_message || "";
+  setLocalMessages((current) => {
+    const cleaned = current.filter((m) => m.kind !== "hitl_action");
+    return finalText
+      ? [
+          ...cleaned,
           {
             id: crypto.randomUUID(),
             conversation_id: next.conversation_id ?? conversationId ?? "pending",
             role: "assistant",
-            content: next.answer ?? "",
+            content: finalText,
             kind: "assistant",
             created_at: new Date().toISOString(),
           },
-        ]);
-      }
-    }
-  }
+        ]
+      : cleaned;
+  });
+
+  await refreshAfterCompletion(next);
+}
+
 
   const composer = (
     <Composer
@@ -272,6 +341,8 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
       onSend={dispatch}
     />
   );
+  
+ 
 
   return (
     <div className="flex h-full flex-col">
@@ -320,8 +391,8 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
                 ) : (
                   <div key={message.id} className="mb-6 max-w-[86%] text-sm leading-7">
                     <RichText text={message.content} />
-                    {message.id === messages[messages.length - 1]?.id && payload?.thread_id && message.kind === "assistant" ? (
-                      <Link href={`/app/trips/${payload.thread_id}`} className="mt-3 inline-flex items-center gap-1 rounded-lg border border-brass/50 bg-paper-raised px-3 py-2 text-xs font-medium text-steel hover:border-brass">
+                    {message.id === lastAnswerId && showPlanLink ? (
+                      <Link href={`/app/trips/${payload!.thread_id}`} className="mt-3 inline-flex items-center gap-1 rounded-lg border border-brass/50 bg-paper-raised px-3 py-2 text-xs font-medium text-steel hover:border-brass">
                         Open trip plan <span aria-hidden="true">→</span>
                       </Link>
                     ) : null}
@@ -334,11 +405,11 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
                   <CompassMark size={18} animated />
                   <div className="flex min-w-0 items-baseline gap-2">
                     <span className="progress-shimmer font-mono text-[12px] tracking-[0.02em]">
-                      {progressNotice ?? agentLabel(progress[progress.length - 1] ?? "input_guardrail")}
+                      {progressNotice ?? agentLabel(progress[progress.length - 1] ?? "Input Guardrail")}
                     </span>
                     {progressNotice ? (
-                      <span className="truncate font-mono text-[10px] text-ink-soft">
-                        {agentLabel(progress[progress.length - 1] ?? "apply_human_response")}
+                      <span className="truncate font-mono text-[12px] text-ink-soft">
+                        {agentLabel(progress[progress.length - 1] ?? "Apply user response")}
                       </span>
                     ) : null}
                   </div>
@@ -372,11 +443,15 @@ export function ChatWorkspace({ conversationId }: { conversationId?: string }) {
                   token={token}
                   payload={payload}
                   onResolved={async (next, action) => {
-                    handleHitlResolved(next, action);
-                    await queryClient.invalidateQueries({ queryKey: ["conversations"] });
-                    await queryClient.invalidateQueries({ queryKey: ["conversation"] });
-                    await queryClient.invalidateQueries({ queryKey: ["trip"] });
-                    await queryClient.invalidateQueries({ queryKey: ["trips"] });
+                    await handleHitlResolved(next, action);
+                    if (action) {
+                      // action submit: just refresh lists, completion sync happens later
+                      await Promise.all(
+                        ["conversations", "conversation", "trip", "trips"].map((key) =>
+                          queryClient.invalidateQueries({ queryKey: [key] }),
+                        ),
+                      );
+                    }
                   }}
                   onProgress={(stage) => setProgress([stage])}
                   onProcessingChange={(processing) => {
