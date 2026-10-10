@@ -25,6 +25,9 @@ import {
 import { Button } from "@/components/ui/Button";
 import { ItineraryDays, isItineraryExpanded } from "@/components/trips/ItineraryDays";
 import { WeatherDetails, hasWeatherData } from "@/components/trips/WeatherDetails";
+import { BudgetDetails, hasBudgetData } from "@/components/trips/BudgetDetails";
+import { FlightDetails, hasFlightData } from "@/components/trips/FlightDetails";
+import { HotelDetails, hasHotelData } from "@/components/trips/HotelDetails";
 //import { Stamp } from "@/components/ui/Stamp";
 import { downloadPlanPdf } from "@/lib/export/documents";
 import { asTripDocument } from "@/lib/plan/parse";
@@ -53,8 +56,8 @@ function getScrollParent(el: HTMLElement): HTMLElement | Window {
 
 const shown = (value?: string) => value?.trim() || "Not specified";
 
-const facts = (...items: Array<string | undefined>) =>
-  items.filter((item) => item?.trim()).join(" · ");
+//const facts = (...items: Array<string | undefined>) =>
+//  items.filter((item) => item?.trim()).join(" · ");
 
 /* ------------------------------------------------------------------ */
 /*  Building blocks                                                    */
@@ -124,8 +127,9 @@ function Endpoint({
   );
 }
 
+
 /* ------------------------------------------------------------------ */
-/*  Timeline side panel (unchanged)                                    */
+/*  Timeline side panel — GSAP animated                               */
 /* ------------------------------------------------------------------ */
 
 function TimelinePanel({
@@ -137,14 +141,147 @@ function TimelinePanel({
 }) {
   const events = trip.timeline?.events ?? [];
 
+  const backdropRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLElement>(null);
+  const closingRef = useRef(false);
+
+  // Opening animation
+  useEffect(() => {
+    const backdrop = backdropRef.current;
+    const panel = panelRef.current;
+
+    if (!backdrop || !panel) return;
+
+    const prefersReducedMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+
+    const ctx = gsap.context(() => {
+      gsap.set(backdrop, { opacity: 0 });
+      gsap.set(panel, {
+        xPercent: 100,
+        opacity: 0,
+      });
+
+      const timeline = gsap.timeline({
+        defaults: {
+          ease: "power3.out",
+        },
+      });
+
+      timeline
+        .to(
+          backdrop,
+          {
+            opacity: 1,
+            duration: prefersReducedMotion ? 0 : 0.25,
+          },
+          0,
+        )
+        .to(
+          panel,
+          {
+            xPercent: 0,
+            opacity: 1,
+            duration: prefersReducedMotion ? 0 : 0.4,
+          },
+          0,
+        );
+    });
+
+    return () => {
+      ctx.revert();
+    };
+  }, []);
+
+  // Prevent the page behind the panel from scrolling.
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, []);
+
+
+
+  // Animate out first; let the parent unmount us after completion.
+  const closePanel = useCallback(() => {
+    if (closingRef.current) return;
+
+    const backdrop = backdropRef.current;
+    const panel = panelRef.current;
+
+    if (!backdrop || !panel) {
+      onClose();
+      return;
+    }
+
+    closingRef.current = true;
+
+    const reducedMotion = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+
+    gsap.timeline({
+      defaults: { ease: "power2.in" },
+      onComplete: onClose,
+    })
+      .to(
+        panel,
+        {
+          xPercent: 100,
+          opacity: 0,
+          duration: reducedMotion ? 0 : 0.28,
+        },
+        0,
+      )
+      .to(
+        backdrop,
+        {
+          opacity: 0,
+          duration: reducedMotion ? 0 : 0.22,
+        },
+        0,
+      );
+  }, [onClose]);
+
+  // Close on Escape.
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closePanel();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [closePanel]);
+
+
   return (
     <div
+      ref={backdropRef}
       className="fixed inset-0 z-50 flex justify-end bg-ink/25 p-3 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-label="Trip timeline"
+      onClick={(event) => {
+        // Dismiss only when the backdrop itself is clicked.
+        if (event.target === event.currentTarget) {
+          closePanel();
+        }
+      }}
     >
-      <aside className="h-full w-full max-w-xl overflow-y-auto rounded-2xl border border-rule bg-paper p-6 shadow-2xl">
+      <aside
+        ref={panelRef}
+        className="h-full w-full max-w-xl overflow-y-auto rounded-2xl border border-rule bg-paper p-6 shadow-2xl"
+      >
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="font-mono text-[10px] uppercase tracking-[.16em] text-brass">
@@ -156,7 +293,8 @@ function TimelinePanel({
           </div>
 
           <button
-            onClick={onClose}
+            type="button"
+            onClick={closePanel}
             className="rounded-full p-2 text-ink-soft hover:bg-paper-raised"
             aria-label="Close timeline"
           >
@@ -171,20 +309,28 @@ function TimelinePanel({
           </p>
         </section>
 
-        {trip.weather?.summary || trip.weather?.packing_hints?.length ? (
+        {trip.weather?.summary ||
+          trip.weather?.packing_hints?.length ? (
           <section className="mt-7">
-            <h3 className="font-display text-xl">Weather and preparation</h3>
+            <h3 className="font-display text-xl">
+              Weather and preparation
+            </h3>
+
             {trip.weather.summary ? (
               <p className="mt-2 text-sm leading-6 text-ink-soft">
                 {trip.weather.summary}
               </p>
             ) : null}
+
             {trip.weather.metric ? (
               <p className="mt-2 font-mono text-xs text-brass">
                 {trip.weather.metric}
-                {trip.weather.metric_label ? ` · ${trip.weather.metric_label}` : ""}
+                {trip.weather.metric_label
+                  ? ` · ${trip.weather.metric_label}`
+                  : ""}
               </p>
             ) : null}
+
             {trip.weather.packing_hints?.length ? (
               <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-ink-soft">
                 {trip.weather.packing_hints.map((hint, index) => (
@@ -196,7 +342,10 @@ function TimelinePanel({
         ) : null}
 
         <section className="mt-7">
-          <h3 className="font-display text-xl">Packing checklist</h3>
+          <h3 className="font-display text-xl">
+            Packing checklist
+          </h3>
+
           <ul className="mt-3 space-y-2">
             {(trip.packing?.items ?? []).map((item, index) => (
               <li
@@ -205,9 +354,13 @@ function TimelinePanel({
               >
                 <span className="mt-1 size-3 rounded-sm border border-rule" />
                 <span>
-                  <strong className="font-medium">{item.item}</strong>
+                  <strong className="font-medium">
+                    {item.item}
+                  </strong>
                   {item.reason ? (
-                    <span className="text-ink-soft"> — {item.reason}</span>
+                    <span className="text-ink-soft">
+                      {" — "}{item.reason}
+                    </span>
                   ) : null}
                 </span>
               </li>
@@ -222,7 +375,10 @@ function TimelinePanel({
         </section>
 
         <section className="mt-7">
-          <h3 className="font-display text-xl">Journey, start to finish</h3>
+          <h3 className="font-display text-xl">
+            Journey, start to finish
+          </h3>
+
           <p className="mt-2 text-sm text-ink-soft">
             {trip.timeline?.summary}
           </p>
@@ -234,10 +390,15 @@ function TimelinePanel({
                 className="relative pb-5"
               >
                 <span className="absolute -left-[1.65rem] top-1 size-3 rounded-full border-2 border-paper bg-brass" />
+
                 <p className="font-mono text-[10px] uppercase tracking-wide text-brass">
                   {event.when || event.kind || "Trip moment"}
                 </p>
-                <p className="mt-1 text-sm font-medium">{event.title}</p>
+
+                <p className="mt-1 text-sm font-medium">
+                  {event.title}
+                </p>
+
                 {event.detail ? (
                   <p className="mt-1 text-sm leading-6 text-ink-soft">
                     {event.detail}
@@ -257,6 +418,7 @@ function TimelinePanel({
     </div>
   );
 }
+
 
 /* ------------------------------------------------------------------ */
 /*  Curved route: measure real DOM positions → draw S-curves           */
@@ -610,101 +772,32 @@ export function VoyageDocument({
         <div className={SPACER} aria-hidden="true" />
 
         {/* Flight — left */}
-        <div ref={setStop(1)} className="relative z-10 md:mr-[48%]">
-          <div className="js-stop" data-side="-1">
-            <Card
-              title="Flight"
-              icon={<Plane size={19} />}
-              metric={flight?.metric}
-              label={flight?.metric_label}
-            >
-              {flight?.summary ? (
-                <p className="text-sm leading-6 text-ink-soft">
-                  {flight.summary}
-                </p>
-              ) : null}
-
-              <div className="mt-4 space-y-3">
-                {(flight?.options ?? []).map((option, index) => (
-                  <div key={index} className="border-t border-rule pt-3">
-                    <p className="text-sm font-medium">
-                      {facts(option.airline, option.flight_number) ||
-                        "Route option"}
-                    </p>
-                    <p className="mt-1 text-xs text-ink-soft">
-                      {facts(
-                        option.origin && option.destination
-                          ? `${option.origin} → ${option.destination}`
-                          : undefined,
-                        option.departs,
-                        option.arrives,
-                        option.duration,
-                      )}
-                    </p>
-                    <p className="mt-1 text-xs text-ink-soft">
-                      {facts(option.cabin, option.estimate, option.notes)}
-                    </p>
-                  </div>
-                ))}
-
-                {!flight?.options?.length ? (
-                  <p className="text-sm text-ink-soft">
-                    Flight details are not available yet.
-                  </p>
-                ) : null}
-              </div>
-            </Card>
-          </div>
-        </div>
+<div ref={setStop(1)} className="relative z-10 md:mr-[48%]">
+  <div className="js-stop" data-side="-1">
+    <Card title={flight?.headline || "Flight"} icon={<Plane size={19} />}>
+      {flight && hasFlightData(flight) ? (
+        <FlightDetails flight={flight} />
+      ) : (
+        <p className="text-sm text-ink-soft">Flight details are not available yet.</p>
+      )}
+    </Card>
+  </div>
+</div>
 
         <div className={SPACER} aria-hidden="true" />
 
         {/* Hotels — right */}
-        <div ref={setStop(2)} className="relative z-10 md:ml-[48%]">
-          <div className="js-stop" data-side="1">
-            <Card
-              title="Hotels"
-              icon={<BedDouble size={19} />}
-              metric={hotel?.metric}
-              label={hotel?.metric_label}
-            >
-              {hotel?.summary ? (
-                <p className="text-sm leading-6 text-ink-soft">
-                  {hotel.summary}
-                </p>
-              ) : null}
-
-              <div className="mt-4 space-y-3">
-                {(hotel?.options ?? []).map((option, index) => (
-                  <div key={index} className="border-t border-rule pt-3">
-                    <p className="text-sm font-medium">
-                      {option.name || "Stay option"}
-                    </p>
-                    <p className="mt-1 text-xs text-ink-soft">
-                      {facts(
-                        option.area,
-                        option.nights,
-                        option.style,
-                        option.estimate_per_night,
-                      )}
-                    </p>
-                    {option.why ? (
-                      <p className="mt-1 text-xs leading-5 text-ink-soft">
-                        {option.why}
-                      </p>
-                    ) : null}
-                  </div>
-                ))}
-
-                {!hotel?.options?.length ? (
-                  <p className="text-sm text-ink-soft">
-                    Accommodation details are not available yet.
-                  </p>
-                ) : null}
-              </div>
-            </Card>
-          </div>
-        </div>
+<div ref={setStop(2)} className="relative z-10 md:ml-[48%]">
+  <div className="js-stop" data-side="1">
+    <Card title={hotel?.headline || "Hotels"} icon={<BedDouble size={19} />}>
+      {hotel && hasHotelData(hotel) ? (
+        <HotelDetails hotel={hotel} />
+      ) : (
+        <p className="text-sm text-ink-soft">Accommodation details are not available yet.</p>
+      )}
+    </Card>
+  </div>
+</div>
 
         <div className={SPACER} aria-hidden="true" />
 
@@ -731,38 +824,13 @@ export function VoyageDocument({
 
         {/* Budget — right */}
         <div ref={setStop(4)} className="relative z-10 md:ml-[48%]">
-          <div className="js-stop" data-side="-1">
-            <Card
-              title="Budget"
-              icon={<CircleDollarSign size={19} />}
-              metric={budget?.estimated_total || budget?.metric}
-              label={budget?.metric_label}
-            >
-              {budget?.summary ? (
-                <p className="text-sm leading-6 text-ink-soft">
-                  {budget.summary}
-                </p>
-              ) : null}
-
-              <dl className="mt-4 space-y-2 border-t border-rule pt-3">
-                {(budget?.lines ?? []).map((line, index) => (
-                  <div
-                    key={index}
-                    className="flex items-baseline justify-between gap-4 text-xs"
-                  >
-                    <dt>{line.category}</dt>
-                    <dd className="text-right text-ink-soft">
-                      {facts(line.amount, line.notes)}
-                    </dd>
-                  </div>
-                ))}
-
-                {!budget?.lines?.length ? (
-                  <p className="text-sm text-ink-soft">
-                    Budget details are not available yet.
-                  </p>
-                ) : null}
-              </dl>
+          <div className="js-stop" data-side="1">
+            <Card title={budget?.headline || "Budget"} icon={<CircleDollarSign size={19} />}>
+              {budget && hasBudgetData(budget) ? (
+                <BudgetDetails budget={budget} />
+              ) : (
+                <p className="text-sm text-ink-soft">Budget details are not available yet.</p>
+              )}
             </Card>
           </div>
         </div>
