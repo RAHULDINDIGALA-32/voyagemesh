@@ -123,3 +123,18 @@ body {
     animation: none;
   }
 }
+
+
+.route-line{stroke-dasharray:1;stroke-dashoffset:1;transition:stroke-dashoffset 1.4s ease}
+.route-line[data-on="true"]{stroke-dashoffset:0}
+.vm-fade{animation:vmfade .32s ease both}
+@keyframes vmfade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){
+  .route-line{transition:none;stroke-dashoffset:0}
+  .vm-fade{animation:none}
+}
+.vm-marquee{animation:vmscroll 45s linear infinite}
+@keyframes vmscroll{to{transform:translateX(-50%)}}
+.vm-bar{transform-origin:left;animation:vmbar linear both}
+@keyframes vmbar{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@media (prefers-reduced-motion:reduce){.vm-marquee,.vm-bar{animation:none}}

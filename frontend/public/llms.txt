@@ -1,0 +1,4 @@
+# VoyageMesh
+Multi-agent travel planning workspace (LangGraph, MCP tools, guardrails, human review). Output is a living voyage document.
+Sign up: /signup   Log in: /login   App: /app
+Limits: no guaranteed availability, prices, or bookings; demos on this page are illustrative.
