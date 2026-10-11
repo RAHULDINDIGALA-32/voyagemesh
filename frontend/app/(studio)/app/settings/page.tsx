@@ -1,7 +1,7 @@
 "use client";
 
-import { useTheme } from "next-themes";
 import { useSyncExternalStore } from "react";
+import { useTheme } from "@/components/theme/ThemeProvider";
 import { Button } from "@/components/ui/Button";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
 import { createClient } from "@/lib/supabase/client";

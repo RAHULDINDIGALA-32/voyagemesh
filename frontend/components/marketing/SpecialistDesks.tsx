@@ -187,9 +187,6 @@ export function SpecialistDesks() {
         return;
       }
 
-      const direction: 1 | -1 =
-        event.deltaY > 0 ? 1 : -1;
-
       const now = Date.now();
 
       // Reset the accumulator after a pause in scrolling.

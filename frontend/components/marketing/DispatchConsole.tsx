@@ -31,8 +31,6 @@ export function DispatchConsole() {
 
     useEffect(() => {
         if (reducedMotion()) {
-            setStage(STATUS.length - 1);
-            setTyped(BRIEF.length);
             return;
         }
 

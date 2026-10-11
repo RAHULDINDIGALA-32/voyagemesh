@@ -16,7 +16,7 @@ import {
   Trash2,
   Map
 } from "lucide-react";
-import { useTheme } from "next-themes";
+import { useTheme } from "@/components/theme/ThemeProvider";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Wordmark } from "@/components/brand/Wordmark";
 import { deleteConversation, listConversations, renameConversation } from "@/lib/api/trips";

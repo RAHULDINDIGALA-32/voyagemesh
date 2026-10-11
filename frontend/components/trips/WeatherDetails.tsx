@@ -39,16 +39,25 @@ const pct = (value?: string) => {
   return /^\d+(\.\d+)?$/.test(t) ? `${t}%` : t;
 };
 
-function conditionIcon(text?: string): LucideIcon {
+function ConditionIcon({
+  text,
+  size,
+  className,
+}: {
+  text?: string;
+  size: number;
+  className?: string;
+}) {
   const s = (text ?? "").toLowerCase();
-  if (/thunder|storm/.test(s)) return CloudLightning;
-  if (/snow|sleet|ice|hail/.test(s)) return CloudSnow;
-  if (/rain|drizzle|shower/.test(s)) return CloudRain;
-  if (/fog|mist|haze|smoke/.test(s)) return CloudFog;
-  if (/partly|few clouds|scattered|mostly sunny/.test(s)) return CloudSun;
-  if (/cloud|overcast/.test(s)) return Cloud;
-  if (/clear|sun/.test(s)) return Sun;
-  return CloudSun;
+  const props = { size, className, "aria-hidden": true } as const;
+  if (/thunder|storm/.test(s)) return <CloudLightning {...props} />;
+  if (/snow|sleet|ice|hail/.test(s)) return <CloudSnow {...props} />;
+  if (/rain|drizzle|shower/.test(s)) return <CloudRain {...props} />;
+  if (/fog|mist|haze|smoke/.test(s)) return <CloudFog {...props} />;
+  if (/partly|few clouds|scattered|mostly sunny/.test(s)) return <CloudSun {...props} />;
+  if (/cloud|overcast/.test(s)) return <Cloud {...props} />;
+  if (/clear|sun/.test(s)) return <Sun {...props} />;
+  return <CloudSun {...props} />;
 }
 
 export function hasWeatherData(w?: WeatherCard): boolean {
@@ -104,7 +113,6 @@ function Stat({
 }
 
 function ForecastDay({ day, unit }: { day: WeatherDay; unit?: string }) {
-  const Icon = conditionIcon(day.condition);
   const high = deg(day.high, unit);
   const low = deg(day.low, unit);
   const rain = pct(day.precip_chance);
@@ -117,7 +125,7 @@ function ForecastDay({ day, unit }: { day: WeatherDay; unit?: string }) {
         </span>
       ) : null}
 
-      <Icon size={22} className="text-brass" aria-hidden="true" />
+      <ConditionIcon text={day.condition} size={22} className="text-brass" />
 
       {high || low ? (
         <p className="text-sm font-medium text-ink">
@@ -147,8 +155,6 @@ function ForecastDay({ day, unit }: { day: WeatherDay; unit?: string }) {
 /* ---------------- main card body ---------------- */
 
 export function WeatherDetails({ weather: w }: { weather: WeatherCard }) {
-  const HeroIcon = conditionIcon(w.condition || w.summary);
-
   const high = deg(w.temp_high, w.temp_unit);
   const low = deg(w.temp_low, w.temp_unit);
   // Older trips only stored a single `metric` like "23 °C".
@@ -176,7 +182,7 @@ export function WeatherDetails({ weather: w }: { weather: WeatherCard }) {
       {showHero ? (
         <div className="flex items-center gap-4">
           <span className="grid size-14 shrink-0 place-items-center rounded-full border border-brass bg-paper-raised text-brass">
-            <HeroIcon size={26} aria-hidden="true" />
+            <ConditionIcon text={w.condition || w.summary} size={26} />
           </span>
 
           <div className="min-w-0">

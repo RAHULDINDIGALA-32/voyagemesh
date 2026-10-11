@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { Map, MessageCircle, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { listConversations, listTrips } from "@/lib/api/trips";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
 import { useUiStore } from "@/stores/ui";
@@ -47,6 +47,12 @@ export function GlobalSearch() {
   const inputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
+  const handleClose = useCallback(() => {
+    setQuery("");
+    setTab("all");
+    closeSearch();
+  }, [closeSearch]);
+
   const conversations = useQuery({
     queryKey: ["conversations", token],
     queryFn: () => listConversations(token!),
@@ -66,19 +72,15 @@ export function GlobalSearch() {
         toggleSearch();
       }
       if (event.key === "Escape" && open) {
-        closeSearch();
+        handleClose();
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [closeSearch, open, toggleSearch]);
+  }, [handleClose, open, toggleSearch]);
 
   useEffect(() => {
-    if (!open) {
-      setQuery("");
-      setTab("all");
-      return;
-    }
+    if (!open) return;
     const focus = window.setTimeout(() => inputRef.current?.focus(), 20);
     return () => window.clearTimeout(focus);
   }, [open]);
@@ -89,12 +91,12 @@ export function GlobalSearch() {
       const target = event.target as HTMLElement | null;
       if (target?.closest("[data-search-trigger]")) return;
       if (!panelRef.current?.contains(event.target as Node)) {
-        closeSearch();
+        handleClose();
       }
     }
     document.addEventListener("mousedown", onPointer);
     return () => document.removeEventListener("mousedown", onPointer);
-  }, [closeSearch, open]);
+  }, [handleClose, open]);
 
   const chatHits = useMemo(() => {
     return (conversations.data ?? []).filter((chat) =>
@@ -143,7 +145,7 @@ export function GlobalSearch() {
           ) : null}
           <button
             type="button"
-            onClick={closeSearch}
+            onClick={handleClose}
             aria-label="Close search"
             className="rounded-[3px] p-1 text-ink-soft hover:bg-paper hover:text-ink"
           >
@@ -186,7 +188,7 @@ export function GlobalSearch() {
                   detail={`Chat · ${chat.cover?.destination || "Unplotted"}`}
                   stamp={formatStamp(chat.updated_at)}
                   query={query}
-                  onPick={closeSearch}
+                  onPick={handleClose}
                 />
               ))
             : null}
@@ -201,7 +203,7 @@ export function GlobalSearch() {
                   detail={`Trip · ${trip.cover?.destination || "Unplotted"}`}
                   stamp={formatStamp(trip.updated_at)}
                   query={query}
-                  onPick={closeSearch}
+                  onPick={handleClose}
                 />
               ))
             : null}

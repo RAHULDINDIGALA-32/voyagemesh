@@ -57,7 +57,7 @@ export function RouteSpine() {
       onUpdate: (s) => { p.style.strokeDashoffset = `${len * (1 - s.progress)}`; place(s.progress); },
     });
     return () => st.kill();
-  }, [g?.d]);
+  }, [g]);
 
   return (
     <div ref={host} aria-hidden="true" className="pointer-events-none absolute inset-0 z-0 hidden md:block">

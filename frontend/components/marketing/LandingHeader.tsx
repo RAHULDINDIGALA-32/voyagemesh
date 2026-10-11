@@ -4,7 +4,7 @@ import { Wordmark } from "@/components/brand/Wordmark";
 export function LandingHeader() {
   return (
     <header className="sticky top-0 z-30 flex items-center justify-between  bg-paper/90 px-6 py-3 backdrop-blur-sm md:px-10">
-      <Link href="/" aria-label="VoyageMesh home" className="ml-10"><Wordmark /></Link>
+      <Wordmark className="ml-10" />
       <div className="flex items-center gap-3 text-sm mr-10">
         <Link href="/login" data-testid="login" data-agent-action="login"
           className="inline-flex min-h-11 items-center px-3 text-ink-soft transition-colors hover:text-ink focus-visible:outline-2 focus-visible:outline-steel">
