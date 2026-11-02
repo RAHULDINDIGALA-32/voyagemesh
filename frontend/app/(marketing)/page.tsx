@@ -42,8 +42,10 @@ export default async function LandingPage() {
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
       <LandingHeader />
       <Reveal />
-      <main>
-        <section className="chart-wash relative overflow-hidden px-6 py-16 md:px-10 md:py-24">
+      <main className="chart-wash">
+        <section 
+        id="hero"
+        className=" chart-wash relative overflow-hidden px-6 py-16 md:px-10 md:py-24">
           <div aria-hidden className="pointer-events-none absolute inset-0 opacity-[0.28]">
             <MeshCanvas />
           </div>
@@ -71,7 +73,7 @@ export default async function LandingPage() {
                   href="#mesh"
                   className="inline-flex min-h-11 items-center rounded-[3px] border border-rule px-5 text-sm transition-colors hover:border-ink"
                 >
-                  Inspect the mesh
+                  Inspect Mesh
                 </a>
               </div>
               <p className="mt-8 font-mono text-[11px] uppercase tracking-[0.14em] text-ink-soft">

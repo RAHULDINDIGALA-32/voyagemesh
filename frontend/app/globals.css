@@ -145,6 +145,24 @@ body {
 
 .chart-wash {
   background:
-    radial-gradient(900px 520px at 82% 12%, color-mix(in oklab, var(--brass) 14%, transparent), transparent 62%),
-    radial-gradient(700px 480px at 8% 88%, color-mix(in oklab, var(--steel) 10%, transparent), transparent 58%);
+    radial-gradient(
+      1000px 600px at 80% 5%,
+      color-mix(in oklab, var(--brass) 14%, transparent),
+      transparent 62%
+    ),
+    radial-gradient(
+      900px 600px at 10% 35%,
+      color-mix(in oklab, var(--steel) 10%, transparent),
+      transparent 60%
+    ),
+    radial-gradient(
+      1000px 650px at 85% 65%,
+      color-mix(in oklab, var(--brass) 10%, transparent),
+      transparent 62%
+    ),
+    radial-gradient(
+      900px 600px at 15% 100%,
+      color-mix(in oklab, var(--steel) 10%, transparent),
+      transparent 60%
+    );
 }
