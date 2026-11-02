@@ -40,9 +40,9 @@
   --color-steel: var(--steel);
   --color-olive: var(--olive);
   --color-danger: var(--danger);
-  --font-sans: "IBM Plex Sans", "Segoe UI", sans-serif;
-  --font-display: Fraunces, Georgia, serif;
-  --font-mono: "IBM Plex Mono", Consolas, monospace;
+  --font-sans: var(--font-plex-sans), "IBM Plex Sans", "Segoe UI", sans-serif;
+  --font-display: var(--font-fraunces), Fraunces, Georgia, serif;
+  --font-mono: var(--font-plex-mono), "IBM Plex Mono", Consolas, monospace;
 }
 
 html {
@@ -53,11 +53,15 @@ html {
 body {
   background: var(--paper);
   color: var(--ink);
-  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+  font-family: var(--font-sans);
 }
 
 .font-display {
-  font-family: Fraunces, Georgia, serif;
+  font-family: var(--font-display);
+}
+
+.font-mono {
+  font-family: var(--font-mono);
 }
 
 ::selection {
@@ -138,3 +142,9 @@ body {
 .vm-bar{transform-origin:left;animation:vmbar linear both}
 @keyframes vmbar{from{transform:scaleX(0)}to{transform:scaleX(1)}}
 @media (prefers-reduced-motion:reduce){.vm-marquee,.vm-bar{animation:none}}
+
+.chart-wash {
+  background:
+    radial-gradient(900px 520px at 82% 12%, color-mix(in oklab, var(--brass) 14%, transparent), transparent 62%),
+    radial-gradient(700px 480px at 8% 88%, color-mix(in oklab, var(--steel) 10%, transparent), transparent 58%);
+}
