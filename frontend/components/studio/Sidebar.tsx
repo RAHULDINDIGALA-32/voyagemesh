@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -134,12 +135,25 @@ export function Sidebar() {
     >
       <div
         className={`flex border-b border-rule ${collapsed
-            ? "flex-col items-center gap-1 px-1 py-2"
-            : "items-center justify-between gap-2 px-3 py-3"
+          ? "flex-col items-center gap-1 px-1 py-2"
+          : "items-center justify-between gap-2 px-3 py-3"
           }`}
       >
         {collapsed ? (
-          <span className="py-1 font-mono text-[11px] tracking-[0.18em] text-brass">VM</span>
+          <Link
+            href="/"
+            aria-label="VoyageMesh home"
+            className={`inline-flex items-center gap-1 text-ink no-underline`}
+          >
+            <Image
+              src="/vm-logo.png"
+              alt="VoyageMesh"
+              width={180}
+              height={36}
+              className="h-10 w-auto object-cover"
+            />
+    
+          </Link>
         ) : (
           <Wordmark href="/app" />
         )}
@@ -311,9 +325,9 @@ export function Sidebar() {
             aria-expanded={accountOpen}
             aria-label="Open account menu"
             className={`flex items-center gap-2 rounded-[3px] py-1.5 text-left text-sm ${collapsed
-                ? "h-10 w-10 justify-center px-0"
-                : `min-w-0 flex-1 px-2 ${accountOpen ? "bg-paper-raised" : "hover:bg-paper-raised"
-                }`
+              ? "h-10 w-10 justify-center px-0"
+              : `min-w-0 flex-1 px-2 ${accountOpen ? "bg-paper-raised" : "hover:bg-paper-raised"
+              }`
               }`}
           >
             <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brass font-mono text-[12px] text-paper">

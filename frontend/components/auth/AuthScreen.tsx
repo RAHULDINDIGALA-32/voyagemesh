@@ -92,7 +92,7 @@ function AuthForm({ mode }: { mode: "login" | "signup" }) {
     <main className="mx-auto flex min-h-full max-w-md flex-col justify-center px-6 py-16">
       <Wordmark />
       <p className="mt-8 font-display text-3xl leading-tight">
-        {mode === "login" ? "Sign in to the Chart Room" : "Open a Chart Room desk"}
+        {mode === "login" ? "Sign in to your Voyage Desk" : "Open a Voyage Desk"}
       </p>
       <p className="mt-3 max-w-sm text-sm text-ink-soft">
         Email or Google. Voyages stay attached to your account.
