@@ -150,74 +150,87 @@ class ItineraryCard(_Loose):
     highlights: list[str] = Field(default_factory=list)
 
 
-def expected_days(constraints: dict[str, str]) -> int | None:
-    """Return an inclusive day count for common natural-language date ranges."""
-    value = str((constraints or {}).get("travel_dates") or "")
-    match = re.search(
-        r"(\d{1,2})\s+([A-Za-z]+)\s*(?:to|until|through|-)\s*"
-        r"(\d{1,2})\s+([A-Za-z]+)(?:\s*,?\s*(\d{4}))?",
-        value,
-        re.I,
-    )
-    if not match:
-        match = re.search(
-            r"(\d{1,2})\s*(?:to|until|through|-)\s*(\d{1,2})\s+"
-            r"([A-Za-z]+)(?:\s*,?\s*(\d{4}))?",
-            value,
-            re.I,
-        )
-        if match:
-            # Normalize the compact form to the full-form groups.
-            groups = (
-                match.group(1),
-                match.group(3),
-                match.group(2),
-                match.group(3),
-                match.group(4),
-            )
+# ---------------------------------------------------------------------------
+# Trip dates
+# ---------------------------------------------------------------------------
 
-            class _Match:
-                def group(self, index: int):
-                    return groups[index - 1]
+_MONTHS = {
+    "jan": 1,
+    "feb": 2,
+    "mar": 3,
+    "apr": 4,
+    "may": 5,
+    "jun": 6,
+    "jul": 7,
+    "aug": 8,
+    "sep": 9,
+    "oct": 10,
+    "nov": 11,
+    "dec": 12,
+}
 
-            match = _Match()
-    if not match:
-        return None
+_SEP = r"(?:to|until|through|till|–|—|-)"
+_ORD = r"(?:st|nd|rd|th)?"
+
+# "12 November to 20 November 2026", "from 12 Nov - 20 Nov"
+_FULL_RANGE = re.compile(
+    rf"(\d{{1,2}}){_ORD}\s+([A-Za-z]+)\s*{_SEP}\s*(\d{{1,2}}){_ORD}\s+([A-Za-z]+)"
+    rf"(?:\s*,?\s*(\d{{4}}))?",
+    re.IGNORECASE,
+)
+# "12 to 20 November 2026", "12-20 Nov"
+_COMPACT_RANGE = re.compile(
+    rf"(\d{{1,2}}){_ORD}\s*{_SEP}\s*(\d{{1,2}}){_ORD}\s+([A-Za-z]+)"
+    rf"(?:\s*,?\s*(\d{{4}}))?",
+    re.IGNORECASE,
+)
+
+
+def _month_number(value: str) -> int:
+    return _MONTHS[value.lower()[:3]]
+
+
+def _range_from_match(match: re.Match[str], compact: bool) -> tuple[date, date] | None:
     try:
-        year = int(match.group(5) or date.today().year)
-        start = date.fromisoformat(
-            f"{year}-{_month_number(match.group(2)):02d}-{int(match.group(1)):02d}"
-        )
-        end_year = year if match.group(5) else year
-        end = date.fromisoformat(
-            f"{end_year}-{_month_number(match.group(4)):02d}-{int(match.group(3)):02d}"
-        )
+        if compact:
+            first_day, last_day, first_month, year = match.groups()
+            last_month = first_month
+        else:
+            first_day, first_month, last_day, last_month, year = match.groups()
+
+        explicit_year = int(year) if year else None
+        year_value = explicit_year or date.today().year
+        start = date(year_value, _month_number(first_month), int(first_day))
+        if explicit_year is None and start < date.today():
+            # "12 November" typed after 12 November means next year.
+            year_value += 1
+            start = date(year_value, _month_number(first_month), int(first_day))
+        end = date(year_value, _month_number(last_month), int(last_day))
         if end < start:
-            end = date.fromisoformat(
-                f"{year + 1}-{_month_number(match.group(4)):02d}-{int(match.group(3)):02d}"
-            )
-        return (end - start).days + 1
+            end = date(year_value + 1, _month_number(last_month), int(last_day))
+        return start, end
     except (ValueError, KeyError):
         return None
 
 
-def _month_number(value: str) -> int:
-    name = value.lower()[:3]
-    months = {
-        "jan": 1,
-        "feb": 2,
-        "mar": 3,
-        "apr": 4,
-        "may": 5,
-        "jun": 6,
-        "jul": 7,
-        "aug": 8,
-        "sep": 9,
-        "oct": 10,
-        "nov": 11,
-        "dec": 12,
-    }
-    return months[name]
+def trip_date_range(constraints: dict[str, str]) -> tuple[date, date] | None:
+    """Return (start, end) for common natural-language date ranges, else None."""
+    value = str((constraints or {}).get("travel_dates") or "")
+    for pattern, compact in ((_FULL_RANGE, False), (_COMPACT_RANGE, True)):
+        for match in pattern.finditer(value):
+            parsed = _range_from_match(match, compact)
+            if parsed:
+                return parsed
+    return None
+
+
+def expected_days(constraints: dict[str, str]) -> int | None:
+    """Return an inclusive day count for common natural-language date ranges."""
+    date_range = trip_date_range(constraints)
+    if date_range is None:
+        return None
+    start, end = date_range
+    return (end - start).days + 1
 
 
 def itinerary_is_valid(card: ItineraryCard, constraints: dict[str, str]) -> bool:
