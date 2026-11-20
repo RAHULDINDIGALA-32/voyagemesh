@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from guardrails.models import GuardrailDecision, ModelGuardrailDecision
+from guardrails.patterns import has_encoded_blob, has_injection_pattern, normalize_for_detection
 from llm.client import get_llm
+from observability.logging import log_event
+from config import get_settings
+from observability.context import increment_llm_call
+
+log = logging.getLogger(__name__)
 
 MAX_QUERY_LENGTH = 2_000
 TRAVEL_TERMS = (
@@ -53,22 +60,22 @@ def _extract_json(content: object) -> str:
 
 def deterministic_input_check(query: str) -> GuardrailDecision:
     """Perform non-bypassable, low-false-positive validation."""
-    normalized = query.strip()
+    normalized = normalize_for_detection(query).strip()
     # print(f"\n\nDeterministic input check: {normalized}\n\n")
     if not normalized or len(normalized) > MAX_QUERY_LENGTH:
         return GuardrailDecision(
-            False, "invalid", "The request is empty or too long.", "deterministic"
+            False, "empty" if not normalized else "too_long", "The request is empty or too long.", "deterministic"
         )
     if any(
         ord(character) < 32 and character not in "\n\r\t" for character in normalized
     ):
         return GuardrailDecision(
             False,
-            "invalid",
+            "control_chars",
             "The request contains unsupported control characters.",
             "deterministic",
         )
-    if PROMPT_INJECTION_PATTERN.search(normalized):
+    if PROMPT_INJECTION_PATTERN.search(normalized) or has_injection_pattern(normalized) or has_encoded_blob(normalized):
         return GuardrailDecision(
             False,
             "prompt_injection",
@@ -77,8 +84,7 @@ def deterministic_input_check(query: str) -> GuardrailDecision:
         )
     if UNSAFE_REQUEST_PATTERN.search(normalized):
         return GuardrailDecision(
-            False,
-            "unsafe",
+            False, "forged_documents" if re.search(r"fake|forge|forged|counterfeit", normalized, re.I) else "smuggling_customs_evasion",
             "The request is not supported for safety reasons.",
             "deterministic",
         )
@@ -101,10 +107,16 @@ async def validate_input(query: str) -> GuardrailDecision:
     cannot safely be delegated to a probabilistic model.
     """
     deterministic = deterministic_input_check(query)
-    if not deterministic.allowed and deterministic.category != "non_travel":
+    hard_blocks = {
+        "prompt_injection", "forged_documents", "smuggling_customs_evasion",
+        "non_travel", "control_chars", "empty", "too_long",
+    }
+    if not deterministic.allowed and deterministic.category in hard_blocks:
+        log_event(log, logging.WARNING, "guardrail_result", "input blocked", category=deterministic.category)
         return deterministic
 
     try:
+        increment_llm_call(get_settings().max_llm_calls_per_workflow)
         response = await get_llm().ainvoke(
             [
                 SystemMessage(
@@ -128,5 +140,8 @@ async def validate_input(query: str) -> GuardrailDecision:
         return GuardrailDecision(
             result.allowed, result.category, result.reason, "model"
         )
-    except Exception:
+    except Exception as exc:
+        # A clean, short request remains usable during a validator outage. Any
+        # deterministic suspicion has already been blocked above.
+        log_event(log, logging.WARNING, "guardrail_degraded", "input validator unavailable", error_type=type(exc).__name__)
         return deterministic

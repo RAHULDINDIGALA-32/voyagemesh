@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from guardrails.models import GuardrailDecision, ModelGuardrailDecision
 from llm.client import get_llm
+from config import get_settings
+from observability.context import increment_llm_call
+from observability.logging import log_event
+
+log = logging.getLogger(__name__)
 
 MAX_ANSWER_LENGTH = 50_000
 SECRET_PATTERN = re.compile(
@@ -64,6 +70,7 @@ async def validate_output(*, query: str, answer: str) -> GuardrailDecision:
         return deterministic
 
     try:
+        increment_llm_call(get_settings().max_llm_calls_per_workflow)
         response = await get_llm().ainvoke(
             [
                 SystemMessage(
@@ -89,5 +96,6 @@ async def validate_output(*, query: str, answer: str) -> GuardrailDecision:
         return GuardrailDecision(
             result.allowed, result.category, result.reason, "model"
         )
-    except Exception:
+    except Exception as exc:
+        log_event(log, logging.WARNING, "guardrail_degraded", "output validator unavailable", error_type=type(exc).__name__)
         return deterministic

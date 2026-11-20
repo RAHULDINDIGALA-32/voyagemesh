@@ -14,6 +14,8 @@ from hitl.constraints import (
     resolve_constraints,
 )
 from llm.client import get_supervisor_llm
+from config import get_settings
+from observability.context import increment_llm_call
 
 logger = logging.getLogger(__name__)
 
@@ -191,6 +193,7 @@ async def supervisor_agent(state: dict) -> dict:
 
     for attempt in (1, 2):  # one retry on malformed output
         try:
+            increment_llm_call(get_settings().max_llm_calls_per_workflow)
             response = await llm.ainvoke(messages)
             candidate = _parse_plan(response.content)
             if candidate.selected_agents:

@@ -12,6 +12,11 @@ GuardrailCategory = Literal[
     "unsafe",
     "prompt_injection",
     "unsupported_claim",
+    "control_chars",
+    "empty",
+    "too_long",
+    "forged_documents",
+    "smuggling_customs_evasion",
 ]
 
 

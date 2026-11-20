@@ -71,6 +71,8 @@ class Settings(BaseSettings):
 
     langsmith_tracing: bool = True
     langsmith_project: str = "VoyageMesh"
+    langsmith_endpoint: str = "https://api.smith.langchain.com"
+    langsmith_sample_rate: float = Field(default=1.0, ge=0.0, le=1.0)
 
     # ------------------------------------------------------------------
     # Application
@@ -78,6 +80,20 @@ class Settings(BaseSettings):
 
     frontend_url: str = "http://localhost:3000"
     environment: str = "development"
+    app_version: str = "0.3.0"
+
+    # ------------------------------------------------------------------
+    # Production protection
+    # ------------------------------------------------------------------
+
+    rate_limit_enabled: bool = True
+    ip_burst_limit_per_min: int = Field(default=20, ge=1, le=1000)
+    max_active_workflows_per_user: int = Field(default=1, ge=1, le=20)
+    max_workflows_per_user_per_day: int = Field(default=5, ge=1, le=1000)
+    max_global_active_workflows: int = Field(default=4, ge=1, le=100)
+    workflow_running_ttl_seconds: int = Field(default=600, ge=60, le=86400)
+    max_llm_calls_per_workflow: int = Field(default=40, ge=1, le=500)
+    hitl_expiry_hours: int = Field(default=24, ge=1, le=168)
 
     supabase_url: str | None = None
     supabase_jwt_secret: SecretStr | None = None

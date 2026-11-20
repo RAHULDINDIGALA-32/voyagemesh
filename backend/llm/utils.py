@@ -5,6 +5,10 @@ import json
 import logging
 import random
 
+from config import get_settings
+from observability.context import increment_llm_call
+from observability.logging import log_event
+
 log = logging.getLogger(__name__)
 
 RETRYABLE_STATUS = {408, 409, 429, 500, 502, 503, 504}
@@ -82,6 +86,7 @@ async def invoke(
     """
     for attempt in range(1, attempts + 1):
         try:
+            increment_llm_call(get_settings().max_llm_calls_per_workflow)
             return await asyncio.wait_for(llm.ainvoke(messages), timeout)
         except Exception as exc:
             status = getattr(exc, "status_code", None)
@@ -91,12 +96,5 @@ async def invoke(
             if not transient or attempt == attempts:
                 raise
             delay = _retry_after(exc) or min(2**attempt, 10) + random.random()
-            log.warning(
-                "%s attempt %d/%d failed (%s); retrying in %.1fs",
-                name,
-                attempt,
-                attempts,
-                status or type(exc).__name__,
-                delay,
-            )
+            log_event(log, logging.WARNING, "llm_retry", f"{name} retrying", error_type=status or type(exc).__name__, duration_ms=delay * 1000)
             await asyncio.sleep(delay)
