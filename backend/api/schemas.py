@@ -20,6 +20,7 @@ class TripAccepted(BaseModel):
 
 class TripResponse(BaseModel):
     request_id: str
+    trace_id: str | None = None
     thread_id: str
     status: str
     answer: str | None = None

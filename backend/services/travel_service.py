@@ -27,7 +27,7 @@ from infrastructure.database import Database
 from infrastructure.product_repository import ProductRepository
 from langgraph.types import Command
 from config import get_settings
-from observability.context import apply_langsmith_context, hash_user_id, reset_llm_calls, set_context
+from observability.context import apply_langsmith_context, hash_user_id, reset_llm_calls, set_context, context_scope
 from rate_limit.store import reserve_workflow
 
 log = logging.getLogger(__name__)
@@ -273,6 +273,7 @@ class TravelService:
         # area at a time, rather than parsing LLM text or JSON strings.
         result_payload = {
             "request_id": request_id,
+            "trace_id": result.get("trace_id") or request_id,
             "thread_id": thread_id,
             "status": derive_status(result, next_nodes),
             "answer": result.get("final_answer", result.get("answer")),
@@ -406,6 +407,8 @@ class TravelService:
             from observability.context import reset_context
             reset_context(token)
         result = await self._project(thread_id, user_id, add_message=True)
+        result["trace_id"] = result.get("trace_id") or request_id
+        await self._product().update_trace_id(thread_id, user_id, result["trace_id"])
         result["conversation_id"] = owned["conversation_id"]
         result["trip_id"] = owned["trip_id"]
         await self._persist_result(thread_id, user_id, result)
@@ -669,9 +672,17 @@ class TravelService:
         if repository is None:
             raise RuntimeError("HITL repository is not initialized")
         try:
+            snapshot = await self._get_snapshot(thread_id)
+            trace_id = snapshot.values.get("trace_id") or snapshot.values.get("request_id") or ""
+            config = apply_langsmith_context(
+                {"configurable": {"thread_id": thread_id}, "metadata": {"trace_id": trace_id}},
+                request_id=snapshot.values.get("request_id", ""), thread_id=thread_id,
+                user_id_hash=hash_user_id(user_id), environment=get_settings().environment,
+                app_version=get_settings().app_version,
+            )
             await self._get_graph().ainvoke(
                 Command(resume=resume_payload),
-                config={"configurable": {"thread_id": thread_id}},
+                config=config,
             )
             await repository.finalize(intervention_id)
             log.info("resume finished thread=%s intervention=%s", thread_id, intervention_id)
@@ -729,9 +740,15 @@ class TravelService:
 
     async def _run_retry(self, thread_id: str, user_id: str) -> None:
         try:
-            await self._get_graph().ainvoke(
-                None, config={"configurable": {"thread_id": thread_id}}
+            snapshot = await self._get_snapshot(thread_id)
+            request_id = snapshot.values.get("request_id", "")
+            config = apply_langsmith_context(
+                {"configurable": {"thread_id": thread_id}},
+                request_id=request_id, thread_id=thread_id,
+                user_id_hash=hash_user_id(user_id), environment=get_settings().environment,
+                app_version=get_settings().app_version,
             )
+            await self._get_graph().ainvoke(None, config=config)
         except Exception as exc:
             log.exception("retry failed thread=%s", thread_id)
             await self._get_graph().aupdate_state(

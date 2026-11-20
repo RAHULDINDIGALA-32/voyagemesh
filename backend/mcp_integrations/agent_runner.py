@@ -43,6 +43,7 @@ from langchain_core.messages import (
 from langchain_core.tools import StructuredTool
 from observability.logging import log_event
 from observability.redact import redact
+from observability.langsmith import traceable
 from langgraph.errors import GraphRecursionError
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -676,6 +677,7 @@ async def _recover(run: _Run, messages: list, exc: Exception, index: int) -> str
 # ---------------------------------------------------------------------------
 
 
+@traceable(name="voyagemesh.mcp_agent", run_type="chain")
 async def run_mcp_agent(
     *,
     server_name: str,

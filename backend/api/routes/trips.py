@@ -3,7 +3,7 @@ import logging
 from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import StreamingResponse
 
 from api.auth import AuthUser, get_current_user
@@ -54,13 +54,17 @@ async def list_trips(
 @router.post("", response_model=TripResponse)
 async def create_trip(
     payload: TripRequest,
+    response: Response,
     user: AuthUser = Depends(get_current_user),
     service: TravelService = Depends(get_travel_service),
     _: None = Depends(enforce_ip_rate_limit),
 ):
     try:
         async with workflow_limiter.slot():
-            return await service.create_trip(payload.query, str(user.id))
+            result = await service.create_trip(payload.query, str(user.id))
+            if result.get("trace_id"):
+                response.headers["X-Trace-ID"] = str(result["trace_id"])
+            return result
     except RateLimitError as exc:
         raise rate_limit_response(exc) from exc
     except Exception as exc:

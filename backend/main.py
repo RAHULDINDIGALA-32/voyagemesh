@@ -10,14 +10,21 @@ from observability.logging import configure_logging
 from observability.context import new_request_id, valid_request_id, set_context, reset_context
 from observability.langsmith import configure_langsmith
 from fastapi import Request
-from fastapi.responses import JSONResponse
-import asyncio
+import logging
+import os
+
+log = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     configure_logging()
     configure_langsmith(settings.environment, settings.langsmith_project)
+    workers = int(os.getenv("WEB_CONCURRENCY", os.getenv("UVICORN_WORKERS", "1")))
+    if workers != 1:
+        log.warning("VoyageMesh requires one backend worker for process-local workflow coordination; detected %s", workers, extra={"event": "multi_worker_constraint"})
+    else:
+        log.info("VoyageMesh single-instance workflow coordination enabled", extra={"event": "single_instance_mode"})
     service = TravelService()
     await service.startup()
 

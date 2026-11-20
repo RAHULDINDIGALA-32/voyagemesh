@@ -173,6 +173,7 @@ export type TripDocument = {
 
 export type TripPayload = {
   request_id: string;
+  trace_id?: string | null;
   thread_id: string;
   status: string;
   answer?: string | null;

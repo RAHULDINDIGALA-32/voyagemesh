@@ -9,6 +9,7 @@ import { Composer } from "@/components/chat/Composer";
 import { HitlCard } from "@/components/chat/HitlCard";
 import { RichText } from "@/components/ui/RichText";
 import { asTripPayload, streamFollowUp, streamTrip } from "@/lib/api/sse";
+import { ApiError } from "@/lib/api/client";
 import { cancelTrip, getConversation, getTrip } from "@/lib/api/trips";
 import { useAccessToken } from "@/lib/hooks/useAccessToken";
 import { pickGreeting } from "@/lib/studio/greetings";
@@ -204,7 +205,17 @@ const showPlanLink =
       if (caught instanceof DOMException && caught.name === "AbortError") {
         setError("Planning stopped by user.");
       } else {
-        setError(caught instanceof Error ? caught.message : "Unable to dispatch");
+        if (caught instanceof ApiError && caught.scope === "user_daily") {
+          setError("You've used today's planning allowance. It resets at midnight UTC.");
+        } else if (caught instanceof ApiError && caught.scope === "user_active") {
+          setError("You already have a voyage being planned. Please wait for it to finish.");
+        } else if (caught instanceof ApiError && caught.scope === "global") {
+          setError("Voyage planning is busy right now. Please retry shortly.");
+        } else if (caught instanceof ApiError && caught.scope === "ip") {
+          setError("Too many requests from this connection. Please retry shortly.");
+        } else {
+          setError(caught instanceof Error ? caught.message : "Unable to dispatch");
+        }
       }
     } finally {
       controllerRef.current = null;

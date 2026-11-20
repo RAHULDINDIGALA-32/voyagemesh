@@ -11,6 +11,7 @@ from llm.client import get_llm
 from config import get_settings
 from observability.context import increment_llm_call
 from observability.logging import log_event
+from observability.langsmith import traceable
 
 log = logging.getLogger(__name__)
 
@@ -63,6 +64,7 @@ def deterministic_output_check(answer: str) -> GuardrailDecision:
     )
 
 
+@traceable(name="voyagemesh.output_guardrail", run_type="chain")
 async def validate_output(*, query: str, answer: str) -> GuardrailDecision:
     """Validate final output; fall back safely if the model check is unavailable."""
     deterministic = deterministic_output_check(answer)

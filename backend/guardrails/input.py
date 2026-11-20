@@ -12,6 +12,7 @@ from llm.client import get_llm
 from observability.logging import log_event
 from config import get_settings
 from observability.context import increment_llm_call
+from observability.langsmith import traceable
 
 log = logging.getLogger(__name__)
 
@@ -100,6 +101,7 @@ def deterministic_input_check(query: str) -> GuardrailDecision:
     )
 
 
+@traceable(name="voyagemesh.input_guardrail", run_type="chain")
 async def validate_input(query: str) -> GuardrailDecision:
     """Use a model as the primary classifier, with deterministic fallback.
 

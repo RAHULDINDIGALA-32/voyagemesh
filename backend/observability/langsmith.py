@@ -25,6 +25,13 @@ def configure_langsmith(environment: str, project: str | None = None) -> bool:
         selected = f"voyagemesh-{environment}"
     os.environ.setdefault("LANGSMITH_PROJECT", selected)
     os.environ.setdefault("LANGCHAIN_PROJECT", selected)
+    os.environ.setdefault("LANGCHAIN_ENDPOINT", os.getenv("LANGSMITH_ENDPOINT", "https://api.smith.langchain.com"))
+    os.environ.setdefault("LANGCHAIN_TRACING_SAMPLING_RATE", os.getenv("LANGSMITH_SAMPLE_RATE", "1.0"))
+    # LangSmith SDK versions differ in hook names. These environment flags are
+    # understood by current clients; custom traceable spans still receive
+    # already-redacted payloads from this application.
+    os.environ.setdefault("LANGCHAIN_HIDE_INPUTS", "false")
+    os.environ.setdefault("LANGCHAIN_HIDE_OUTPUTS", "false")
     log.info("LangSmith tracing configured enabled=%s project=%s", _enabled, selected, extra={"event": "tracing_configured"})
     return _enabled
 

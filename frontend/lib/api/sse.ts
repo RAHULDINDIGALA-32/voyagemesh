@@ -1,10 +1,25 @@
 import { apiBase } from "./client";
+import { ApiError, type RateLimitScope } from "./client";
 import type { TripPayload } from "@/types/trip";
 
 export type SseEvent = {
   event: string;
   data: Record<string, unknown>;
 };
+
+async function throwApiResponse(response: Response): Promise<never> {
+  const body = await response.json().catch(() => null) as { detail?: unknown } | null;
+  const detail = body?.detail && typeof body.detail === "object"
+    ? body.detail as { message?: string; scope?: RateLimitScope; retry_after_seconds?: number; error?: string }
+    : null;
+  const error = new ApiError(detail?.message ?? (typeof body?.detail === "string" ? body.detail : `Request failed (${response.status})`));
+  error.status = response.status;
+  error.code = detail?.error;
+  error.scope = detail?.scope;
+  error.retryAfterSeconds = (detail?.retry_after_seconds ?? Number(response.headers.get("Retry-After") ?? 0)) || undefined;
+  error.traceId = response.headers.get("X-Trace-ID") ?? undefined;
+  throw error;
+}
 
 export async function readSseStream(
   response: Response,
@@ -70,9 +85,7 @@ export async function streamTrip(
     body: JSON.stringify({ query }),
   });
   if (!response.ok) {
-    const body = await response.json().catch(() => null) as { detail?: unknown } | null;
-    const detail = typeof body?.detail === "string" ? body.detail : `Request failed (${response.status})`;
-    throw new Error(detail);
+    await throwApiResponse(response);
   }
   await readSseStream(response, onEvent);
 }
@@ -94,9 +107,7 @@ export async function streamFollowUp(
     signal,
   });
   if (!response.ok) {
-    const body = await response.json().catch(() => null) as { detail?: unknown } | null;
-    const detail = typeof body?.detail === "string" ? body.detail : `Request failed (${response.status})`;
-    throw new Error(detail);
+    await throwApiResponse(response);
   }
   await readSseStream(response, onEvent);
 }

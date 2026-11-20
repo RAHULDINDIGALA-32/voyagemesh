@@ -22,8 +22,11 @@ from hitl.contracts import (
     normalize_constraints,
 )
 from langgraph.types import interrupt
+from observability.langsmith import traceable
+from observability.context import context_scope
 
 
+@traceable(name="voyagemesh.node.input_guardrail", run_type="chain")
 async def input_guardrail(state: dict) -> dict:
     decision = await validate_input(
         state.get("guardrail_query") or state["user_query"]
@@ -43,6 +46,7 @@ async def input_guardrail(state: dict) -> dict:
     return update
 
 
+@traceable(name="voyagemesh.node.blocked_response", run_type="chain")
 async def blocked_response(state: dict) -> dict:
     """Return a safe response without invoking tools or downstream agents."""
     return {
@@ -200,34 +204,49 @@ def _complete(node_name: str, update: dict, state: dict) -> dict:
     return result
 
 
+@traceable(name="voyagemesh.node.supervisor_agent", run_type="chain")
 async def supervisor_agent(state: dict) -> dict:
-    return await run_supervisor(state)
+    with context_scope(agent="supervisor"):
+        return await run_supervisor(state)
 
 
+@traceable(name="voyagemesh.node.flight_agent", run_type="chain")
 async def flight_agent(state: dict) -> dict:
-    return _complete("flight_agent", await run_flight_agent(state), state)
+    with context_scope(agent="flight_agent", provider="groq"):
+        return _complete("flight_agent", await run_flight_agent(state), state)
 
 
+@traceable(name="voyagemesh.node.hotel_agent", run_type="chain")
 async def hotel_agent(state: dict) -> dict:
-    return _complete("hotel_agent", await run_hotel_agent(state), state)
+    with context_scope(agent="hotel_agent", provider="groq"):
+        return _complete("hotel_agent", await run_hotel_agent(state), state)
 
 
+@traceable(name="voyagemesh.node.weather_agent", run_type="chain")
 async def weather_agent(state: dict) -> dict:
-    return _complete("weather_agent", await run_weather(state), state)
+    with context_scope(agent="weather_agent", provider="groq"):
+        return _complete("weather_agent", await run_weather(state), state)
 
 
+@traceable(name="voyagemesh.node.budget_agent", run_type="chain")
 async def budget_agent(state: dict) -> dict:
-    return _complete("budget_agent", await run_budget(state), state)
+    with context_scope(agent="budget_agent", provider="groq"):
+        return _complete("budget_agent", await run_budget(state), state)
 
 
+@traceable(name="voyagemesh.node.itinerary_agent", run_type="chain")
 async def itinerary_agent(state: dict) -> dict:
-    return _complete("itinerary_agent", await run_itinerary(state), state)
+    with context_scope(agent="itinerary_agent", provider="groq"):
+        return _complete("itinerary_agent", await run_itinerary(state), state)
 
 
+@traceable(name="voyagemesh.node.final_agent", run_type="chain")
 async def final_agent(state: dict) -> dict:
-    return await run_final(state)
+    with context_scope(agent="final_agent", provider="groq"):
+        return await run_final(state)
 
 
+@traceable(name="voyagemesh.node.output_guardrail", run_type="chain")
 async def output_guardrail(state: dict) -> dict:
     decision = await validate_output(
         query=state["user_query"],

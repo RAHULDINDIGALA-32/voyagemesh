@@ -165,6 +165,9 @@ class ProductRepository:
         now = utc_now()
         day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         async with self.pool.connection() as connection, connection.transaction():
+            # Serialize reservations for the same user so simultaneous create
+            # requests cannot both pass the quota checks.
+            await connection.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (user_id,))
             result = await connection.execute(
                 "SELECT COUNT(*) AS count FROM voyagemesh_trips WHERE user_id=%s AND created_at >= %s AND status <> 'blocked' AND deleted_at IS NULL",
                 (user_id, day_start),
@@ -201,7 +204,7 @@ class ProductRepository:
             result = await connection.execute(
                 """
                 SELECT c.id AS conversation_id, t.id AS trip_id, c.thread_id, c.title, c.status,
-                       t.latest_payload
+                       t.latest_payload, t.trace_id
                 FROM voyagemesh_conversations c
                 JOIN voyagemesh_trips t ON t.conversation_id = c.id
                 WHERE c.thread_id = %s AND c.user_id = %s AND c.deleted_at IS NULL
@@ -227,7 +230,7 @@ class ProductRepository:
             result = await connection.execute(
                 """
                 SELECT c.id AS conversation_id, t.id AS trip_id, c.thread_id, c.title, c.status,
-                       c.updated_at, t.cover
+                       c.updated_at, t.cover, t.trace_id
                 FROM voyagemesh_conversations c
                 JOIN voyagemesh_trips t ON t.conversation_id = c.id
                 WHERE c.id = %s AND c.user_id = %s AND c.deleted_at IS NULL
@@ -258,7 +261,7 @@ class ProductRepository:
             result = await connection.execute(
                 """
                 SELECT t.id AS trip_id, t.conversation_id, t.thread_id, t.title, t.status,
-                       t.updated_at, t.cover, t.latest_payload
+                       t.updated_at, t.cover, t.latest_payload, t.trace_id
                 FROM voyagemesh_trips t
                 WHERE t.user_id = %s AND t.deleted_at IS NULL
                 ORDER BY t.updated_at DESC
@@ -340,7 +343,8 @@ class ProductRepository:
             await connection.execute(
                 """
                 UPDATE voyagemesh_trips
-                SET title = %s, status = %s, cover = %s::jsonb, latest_payload = %s::jsonb, updated_at = %s
+                SET title = %s, status = %s, cover = %s::jsonb, latest_payload = %s::jsonb,
+                    trace_id = COALESCE(%s, trace_id), updated_at = %s
                 WHERE thread_id = %s AND user_id = %s AND deleted_at IS NULL
                 """,
                 (
@@ -348,6 +352,7 @@ class ProductRepository:
                     status,
                     json.dumps(cover),
                     json.dumps(payload),
+                    payload.get("trace_id"),
                     now,
                     thread_id,
                     user_id,
