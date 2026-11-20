@@ -12,6 +12,7 @@ from api.schemas import FollowUpRequest, TripRequest, TripResponse
 from hitl.contracts import HumanResponseRequest
 from hitl.errors import HitlError
 from services.travel_service import TravelService
+from rate_limit.limits import enforce_ip_rate_limit, workflow_limiter, rate_limit_response, RateLimitError
 
 
 logger = logging.getLogger(__name__)
@@ -55,9 +56,13 @@ async def create_trip(
     payload: TripRequest,
     user: AuthUser = Depends(get_current_user),
     service: TravelService = Depends(get_travel_service),
+    _: None = Depends(enforce_ip_rate_limit),
 ):
     try:
-        return await service.create_trip(payload.query, str(user.id))
+        async with workflow_limiter.slot():
+            return await service.create_trip(payload.query, str(user.id))
+    except RateLimitError as exc:
+        raise rate_limit_response(exc) from exc
     except Exception as exc:
         logger.exception("Trip workflow failed")
         raise HTTPException(
@@ -71,11 +76,16 @@ async def stream_trip(
     payload: TripRequest,
     user: AuthUser = Depends(get_current_user),
     service: TravelService = Depends(get_travel_service),
+    _: None = Depends(enforce_ip_rate_limit),
 ):
     async def event_generator():
         try:
-            async for item in service.stream_trip(payload.query, str(user.id)):
-                yield _sse(item["event"], item["data"])
+            async with workflow_limiter.slot():
+                async for item in service.stream_trip(payload.query, str(user.id)):
+                    yield _sse(item["event"], item["data"])
+        except RateLimitError as exc:
+            detail = {"detail": {"error": "rate_limited", "scope": exc.scope, "message": exc.message, "retry_after_seconds": exc.retry_after}}
+            yield f'event: error\ndata: {json.dumps(detail)}\n\n'
         except Exception:
             logger.exception("Trip streaming workflow failed")
             yield 'event: error\ndata: {"detail": "Travel planning workflow failed"}\n\n'
@@ -200,14 +210,16 @@ async def respond_to_intervention(
     payload: HumanResponseRequest,
     user: AuthUser = Depends(get_current_user),
     service: TravelService = Depends(get_travel_service),
+    _: None = Depends(enforce_ip_rate_limit),
 ):
     if not thread_id.startswith("trip_"):
         raise HTTPException(status_code=400, detail="Invalid thread ID")
 
     try:
-        return await service.respond_to_intervention(
-            thread_id, payload, str(user.id)
-        )
+        async with workflow_limiter.slot():
+            return await service.respond_to_intervention(thread_id, payload, str(user.id))
+    except RateLimitError as exc:
+        raise rate_limit_response(exc) from exc
     except HitlError as exc:
         raise HTTPException(
             status_code=exc.http_status,

@@ -26,6 +26,9 @@ from agents.structured import (
 from infrastructure.database import Database
 from infrastructure.product_repository import ProductRepository
 from langgraph.types import Command
+from config import get_settings
+from observability.context import apply_langsmith_context, hash_user_id, reset_llm_calls, set_context
+from rate_limit.store import reserve_workflow
 
 log = logging.getLogger(__name__)
 
@@ -71,6 +74,7 @@ class TravelService:
         checkpointer = await self.database.connect()
         self.graph = build_graph(checkpointer=checkpointer)
         self._reaper_task = asyncio.create_task(self._reap_stale_resumes())
+        await self._product().cleanup_stale_workflows(get_settings().workflow_running_ttl_seconds, get_settings().hitl_expiry_hours)
 
     async def shutdown(self) -> None:
         for task in self._resumes.values():
@@ -231,6 +235,7 @@ class TravelService:
                 "workflow": "voyagemesh",
                 "version": "3",
             },
+            "run_name": "voyagemesh.plan",
         }
 
     def _format_result(
@@ -377,6 +382,7 @@ class TravelService:
 
     async def create_trip(self, query: str, user_id: str) -> dict:
         graph = self._get_graph()
+        await reserve_workflow(self._product(), user_id)
 
         request_id = uuid.uuid4().hex
         thread_id = f"trip_{uuid.uuid4().hex}"
@@ -390,10 +396,15 @@ class TravelService:
             thread_id=thread_id,
             request_id=request_id,
         )
+        config = apply_langsmith_context(config, request_id=request_id, thread_id=thread_id, user_id_hash=hash_user_id(user_id), environment=get_settings().environment, app_version=get_settings().app_version)
+        token = set_context(request_id=request_id, user_id_hash=hash_user_id(user_id), thread_id=thread_id)
+        reset_llm_calls()
 
-        await graph.ainvoke(
-            self._initial_state(query, request_id), config=config
-        )
+        try:
+            await graph.ainvoke(self._initial_state(query, request_id), config=config)
+        finally:
+            from observability.context import reset_context
+            reset_context(token)
         result = await self._project(thread_id, user_id, add_message=True)
         result["conversation_id"] = owned["conversation_id"]
         result["trip_id"] = owned["trip_id"]
@@ -401,6 +412,7 @@ class TravelService:
         return result
 
     async def stream_trip(self, query: str, user_id: str):
+        await reserve_workflow(self._product(), user_id)
         request_id = uuid.uuid4().hex
         thread_id = f"trip_{uuid.uuid4().hex}"
         owned = await self._product().create_owned_thread(
@@ -415,6 +427,9 @@ class TravelService:
             thread_id=thread_id,
             request_id=request_id,
         )
+        config = apply_langsmith_context(config, request_id=request_id, thread_id=thread_id, user_id_hash=hash_user_id(user_id), environment=get_settings().environment, app_version=get_settings().app_version)
+        token = set_context(request_id=request_id, user_id_hash=hash_user_id(user_id), thread_id=thread_id)
+        reset_llm_calls()
 
         initial_state = self._initial_state(query, request_id)
 
@@ -440,6 +455,8 @@ class TravelService:
                     break
                 yield item
         finally:
+            from observability.context import reset_context
+            reset_context(token)
             # Closing the HTTP/SSE consumer deliberately does not cancel the
             # tracked workflow. Navigation is not an abort action.
             if task.done():

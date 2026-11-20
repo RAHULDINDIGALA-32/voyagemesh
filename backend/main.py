@@ -6,10 +6,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from api.router import api_router
 from config import get_settings
 from services.travel_service import TravelService
+from observability.logging import configure_logging
+from observability.context import new_request_id, valid_request_id, set_context, reset_context
+from observability.langsmith import configure_langsmith
+from fastapi import Request
+from fastapi.responses import JSONResponse
+import asyncio
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    configure_logging()
+    configure_langsmith(settings.environment, settings.langsmith_project)
     service = TravelService()
     await service.startup()
 
@@ -22,6 +30,7 @@ async def lifespan(app: FastAPI):
 
 
 settings = get_settings()
+configure_logging()
 
 app = FastAPI(
     title="VoyageMesh API",
@@ -47,6 +56,17 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PATCH", "DELETE"],
     allow_headers=["Content-Type", "Authorization"],
 )
+
+@app.middleware("http")
+async def request_context_middleware(request: Request, call_next):
+    request_id = request.headers.get("X-Request-ID") if valid_request_id(request.headers.get("X-Request-ID")) else new_request_id()
+    token = set_context(request_id=request_id)
+    try:
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = request_id
+        return response
+    finally:
+        reset_context(token)
 
 app.include_router(
     api_router,

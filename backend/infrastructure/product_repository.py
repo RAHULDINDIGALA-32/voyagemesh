@@ -82,6 +82,12 @@ class ProductRepository:
                     updated_at TIMESTAMPTZ NOT NULL
                 )
                 """)
+            await connection.execute("ALTER TABLE voyagemesh_trips ADD COLUMN IF NOT EXISTS trace_id TEXT")
+            await connection.execute("""
+                CREATE INDEX IF NOT EXISTS voyagemesh_trips_user_status_updated_idx
+                ON voyagemesh_trips (user_id, status, updated_at)
+                WHERE deleted_at IS NULL
+            """)
             await connection.execute("""
                 CREATE INDEX IF NOT EXISTS voyagemesh_conversations_user_updated_idx
                 ON voyagemesh_conversations (user_id, updated_at DESC)
@@ -138,6 +144,44 @@ class ProductRepository:
             "title": title,
             "status": "draft",
         }
+
+    async def cleanup_stale_workflows(self, ttl_seconds: int, hitl_expiry_hours: int) -> None:
+        now = utc_now()
+        async with self.pool.connection() as connection, connection.transaction():
+            await connection.execute(
+                """UPDATE voyagemesh_trips SET status='failed', updated_at=%s,
+                   latest_payload = jsonb_set(COALESCE(latest_payload, '{}'::jsonb), '{failure_reason}', '"stale"')
+                   WHERE status IN ('draft','resuming') AND updated_at < %s AND deleted_at IS NULL""",
+                (now, now - __import__('datetime').timedelta(seconds=ttl_seconds)),
+            )
+            await connection.execute(
+                """UPDATE voyagemesh_trips SET status='failed', updated_at=%s,
+                   latest_payload = jsonb_set(COALESCE(latest_payload, '{}'::jsonb), '{failure_reason}', '"expired"')
+                   WHERE status='awaiting_you' AND updated_at < %s AND deleted_at IS NULL""",
+                (now, now - __import__('datetime').timedelta(hours=hitl_expiry_hours)),
+            )
+
+    async def reserve_workflow(self, user_id: str, *, max_active: int, daily_limit: int, running_ttl_seconds: int) -> None:
+        now = utc_now()
+        day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        async with self.pool.connection() as connection, connection.transaction():
+            result = await connection.execute(
+                "SELECT COUNT(*) AS count FROM voyagemesh_trips WHERE user_id=%s AND created_at >= %s AND status <> 'blocked' AND deleted_at IS NULL",
+                (user_id, day_start),
+            )
+            if (await result.fetchone())["count"] >= daily_limit:
+                from rate_limit.store import seconds_until_midnight
+                raise __import__('rate_limit.limits', fromlist=['RateLimitError']).RateLimitError('user_daily', "You've reached today's planning limit.", seconds_until_midnight())
+            result = await connection.execute(
+                "SELECT COUNT(*) AS count FROM voyagemesh_trips WHERE user_id=%s AND status IN ('draft','resuming') AND updated_at >= %s AND deleted_at IS NULL",
+                (user_id, now - __import__('datetime').timedelta(seconds=running_ttl_seconds)),
+            )
+            if (await result.fetchone())["count"] >= max_active:
+                raise __import__('rate_limit.limits', fromlist=['RateLimitError']).RateLimitError('user_active', "You already have a planning workflow in progress.", 30)
+
+    async def update_trace_id(self, thread_id: str, user_id: str, trace_id: str) -> None:
+        async with self.pool.connection() as connection:
+            await connection.execute("UPDATE voyagemesh_trips SET trace_id=%s WHERE thread_id=%s AND user_id=%s", (trace_id, thread_id, user_id))
 
     async def require_thread(self, thread_id: str, user_id: str) -> dict[str, Any]:
         record = await self.get_thread(thread_id, user_id)
